@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1004830649757",
+    "project_id": "cademeusparca-pic4",
+    "storage_bucket": "cademeusparca-pic4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004830649757:android:fd6ab1f84c6297b60fd374",
+        "android_client_info": {
+          "package_name": "br.edu.eep.cademeusparca"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIraEVCymaHb80LnYxkyMeeJlfxmxEY8I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
