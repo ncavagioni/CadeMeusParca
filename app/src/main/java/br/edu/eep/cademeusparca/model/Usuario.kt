@@ -1,4 +1,8 @@
 package br.edu.eep.cademeusparca.model
 
-class Usuario {
-}
+data class Usuario(
+    val userId: String = "",
+    val parcaname: String = "",
+    val telefone: String = "",
+    val contatoEmergencia: String = ""
+)
