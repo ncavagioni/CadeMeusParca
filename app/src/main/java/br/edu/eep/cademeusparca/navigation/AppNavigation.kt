@@ -46,7 +46,16 @@ fun AppNavigation(
         }
 
         composable("cadastro") {
-            CadastroInicialScreen()
+            CadastroInicialScreen(
+                viewModel = usuarioViewModel,
+                onCadastroConcluido = {
+                    navController.navigate("meus_roles") {
+                        popUpTo("cadastro") {
+                            inclusive = true
+                        }
+                    }
+                }
+            )
         }
 
         composable("meus_roles") {

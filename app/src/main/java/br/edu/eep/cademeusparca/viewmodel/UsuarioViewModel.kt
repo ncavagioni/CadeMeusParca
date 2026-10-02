@@ -38,10 +38,12 @@ class UsuarioViewModel : ViewModel() {
         contatoEmergencia = valor
     }
 
-    fun salvarPerfil() {
+    fun salvarPerfil(onResult: (Boolean) -> Unit = {}) {
+        if (carregando) return
 
         if (parcaname.isBlank()) {
             mensagem = "Informe o Parcaname."
+            onResult(false)
             return
         }
 
@@ -53,14 +55,13 @@ class UsuarioViewModel : ViewModel() {
             telefone = telefone,
             contatoEmergencia = contatoEmergencia
         ) { sucesso, erro ->
-
             carregando = false
-
             mensagem = if (sucesso) {
-                "Perfil salvo com sucesso!"
+                ""
             } else {
                 "Erro ao salvar: ${erro ?: "erro desconhecido"}"
             }
+            onResult(sucesso)
         }
     }
 
