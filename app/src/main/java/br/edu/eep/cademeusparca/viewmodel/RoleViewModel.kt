@@ -55,6 +55,72 @@ class RoleViewModel : ViewModel() {
         }
     }
 
+    var codigoEntrada by mutableStateOf("")
+        private set
+    var codigoInvalido by mutableStateOf(false)
+        private set
+    var buscandoRole by mutableStateOf(false)
+        private set
+    var mensagemBusca by mutableStateOf("")
+        private set
+    var roleEncontrado by mutableStateOf<Role?>(null)
+        private set
+    var entrandoNoRole by mutableStateOf(false)
+        private set
+    var mensagemEntrada by mutableStateOf("")
+        private set
+    var entradaConcluida by mutableStateOf(false)
+        private set
+
+    fun atualizarCodigoEntrada(valor: String) {
+        if (buscandoRole) return
+
+        if (valor.any { it !in 'A'..'Z' && it !in 'a'..'z' && it !in '0'..'9' }) {
+            codigoInvalido = true
+            mensagemBusca = "Use apenas letras de A a Z e números de 0 a 9."
+            return
+        }
+
+        codigoEntrada = valor.uppercase(Locale.ROOT).take(6)
+        codigoInvalido = false
+        mensagemBusca = ""
+        roleEncontrado = null
+    }
+
+    fun buscarRolePorCodigo() {
+        if (buscandoRole || roleEncontrado != null) return
+
+        if (codigoInvalido || !codigoEntrada.matches(Regex("[A-Z0-9]{6}"))) {
+            codigoInvalido = true
+            mensagemBusca = "Informe um código de 6 letras ou números."
+            return
+        }
+
+        buscandoRole = true
+        mensagemBusca = ""
+        repository.buscarRolePorCodigo(codigoEntrada) { role, erro ->
+            roleEncontrado = role
+            mensagemBusca = erro ?: ""
+            buscandoRole = false
+        }
+    }
+
+    fun consumirRoleEncontrado() {
+        roleEncontrado = null
+    }
+
+    fun entrarNoRole(roleId: String) {
+        if (entrandoNoRole || entradaConcluida) return
+
+        entrandoNoRole = true
+        mensagemEntrada = ""
+        repository.entrarNoRole(roleId) { sucesso, erro ->
+            entradaConcluida = sucesso
+            mensagemEntrada = erro ?: ""
+            entrandoNoRole = false
+        }
+    }
+
     fun atualizarNome(valor: String) {
         if (carregando) return
         nome = valor

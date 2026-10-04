@@ -119,6 +119,111 @@ class RoleRepository {
         onResult(null, mensagem)
     }
 
+    fun buscarRolePorCodigo(codigo: String, onResult: (Role?, String?) -> Unit) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(null, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+        if (!codigo.matches(Regex("[A-Z0-9]{6}"))) {
+            onResult(null, "Informe um código de 6 letras ou números.")
+            return
+        }
+
+        firestore.collection("roles")
+            .whereEqualTo("codigo", codigo)
+            .limit(1)
+            .get(Source.SERVER)
+            .addOnSuccessListener { resultado ->
+                val documento = resultado.documents.firstOrNull()
+                val role = try {
+                    documento?.toObject(Role::class.java)?.copy(roleId = documento.id)
+                } catch (erro: RuntimeException) {
+                    Log.w("RoleRepository", "Dados inválidos na busca por código", erro)
+                    onResult(null, "Não foi possível carregar esse rolê. Tente novamente.")
+                    return@addOnSuccessListener
+                }
+
+                if (documento == null || role == null || role.status != "ativo") {
+                    onResult(null, "Rolê não encontrado.")
+                    return@addOnSuccessListener
+                }
+
+                documento.reference.collection("participantes").document(uid)
+                    .get(Source.SERVER)
+                    .addOnSuccessListener { participante ->
+                        if (participante.exists()) {
+                            onResult(null, "Você já participa desse rolê.")
+                        } else {
+                            onResult(role, null)
+                        }
+                    }
+                    .addOnFailureListener { onResult(null, mensagemErroEntrada(it)) }
+            }
+            .addOnFailureListener { onResult(null, mensagemErroEntrada(it)) }
+    }
+
+    fun entrarNoRole(roleId: String, onResult: (Boolean, String?) -> Unit) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(false, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+        if (roleId.isBlank() || roleId.contains('/')) {
+            onResult(false, "Rolê não encontrado.")
+            return
+        }
+
+        val roleRef = firestore.collection("roles").document(roleId)
+        val participanteRef = roleRef.collection("participantes").document(uid)
+
+        firestore.runTransaction { transacao ->
+            val role = transacao.get(roleRef)
+            val participante = transacao.get(participanteRef)
+
+            when {
+                participante.exists() -> ResultadoEntrada.JA_PARTICIPA
+                !role.exists() || role.getString("status") != "ativo" ->
+                    ResultadoEntrada.INDISPONIVEL
+                else -> {
+                    transacao.set(
+                        participanteRef,
+                        ParticipanteRole(userId = uid, papel = "participante")
+                    )
+                    ResultadoEntrada.ENTROU
+                }
+            }
+        }
+            .addOnSuccessListener { resultado ->
+                when (resultado) {
+                    ResultadoEntrada.ENTROU -> onResult(true, null)
+                    ResultadoEntrada.JA_PARTICIPA ->
+                        onResult(false, "Você já participa desse rolê.")
+                    ResultadoEntrada.INDISPONIVEL ->
+                        onResult(false, "Esse rolê não está mais disponível para entrada.")
+                }
+            }
+            .addOnFailureListener { onResult(false, mensagemErroEntrada(it)) }
+    }
+
+    private fun mensagemErroEntrada(erro: Exception): String {
+        Log.w("RoleRepository", "Erro no fluxo de entrada em rolê", erro)
+        return when ((erro as? FirebaseFirestoreException)?.code) {
+            FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                "Não foi possível acessar esse rolê. Verifique as permissões e tente novamente."
+            FirebaseFirestoreException.Code.UNAUTHENTICATED ->
+                "Sua autenticação não está disponível. Abra o aplicativo novamente."
+            FirebaseFirestoreException.Code.UNAVAILABLE,
+            FirebaseFirestoreException.Code.DEADLINE_EXCEEDED ->
+                "Não foi possível conectar ao Firestore. Verifique sua internet e tente novamente."
+            else -> "Não foi possível concluir a operação. Tente novamente."
+        }
+    }
+
+    private enum class ResultadoEntrada {
+        ENTROU, JA_PARTICIPA, INDISPONIVEL
+    }
+
     private fun buscarCodigoDisponivel(
         tentativa: Int,
         onResult: (String?, String?) -> Unit

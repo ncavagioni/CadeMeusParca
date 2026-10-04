@@ -13,7 +13,9 @@ import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import br.edu.eep.cademeusparca.model.Role
 import br.edu.eep.cademeusparca.ui.screens.CadastroInicialScreen
+import br.edu.eep.cademeusparca.ui.screens.ConfirmarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.CriarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.EntrarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.MeusRolesScreen
@@ -127,9 +129,52 @@ fun AppNavigation(
         }
 
         composable("entrar_role") {
+            val roleViewModel: RoleViewModel = viewModel()
             EntrarRoleScreen(
+                viewModel = roleViewModel,
                 onVoltar = {
                     navController.popBackStack()
+                },
+                onRoleEncontrado = { role ->
+                    navController.navigate(
+                        "confirmar_role/${Uri.encode(role.roleId)}" +
+                            "?nome=${Uri.encode(role.nome)}" +
+                            "&codigo=${Uri.encode(role.codigo)}" +
+                            "&local=${Uri.encode(role.nomeLocal)}" +
+                            "&endereco=${Uri.encode(role.endereco)}"
+                    ) {
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = "confirmar_role/{roleId}?nome={nome}&codigo={codigo}&local={local}&endereco={endereco}",
+            arguments = listOf(
+                navArgument("roleId") { type = NavType.StringType },
+                navArgument("nome") { type = NavType.StringType; defaultValue = "" },
+                navArgument("codigo") { type = NavType.StringType; defaultValue = "" },
+                navArgument("local") { type = NavType.StringType; defaultValue = "" },
+                navArgument("endereco") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val roleViewModel: RoleViewModel = viewModel()
+            val role = Role(
+                roleId = backStackEntry.arguments?.getString("roleId").orEmpty(),
+                nome = backStackEntry.arguments?.getString("nome").orEmpty(),
+                codigo = backStackEntry.arguments?.getString("codigo").orEmpty(),
+                nomeLocal = backStackEntry.arguments?.getString("local").orEmpty(),
+                endereco = backStackEntry.arguments?.getString("endereco").orEmpty()
+            )
+            ConfirmarRoleScreen(
+                role = role,
+                viewModel = roleViewModel,
+                onCancelar = {
+                    navController.popBackStack()
+                },
+                onVoltarMeusRoles = {
+                    navController.popBackStack("meus_roles", inclusive = false)
                 }
             )
         }
