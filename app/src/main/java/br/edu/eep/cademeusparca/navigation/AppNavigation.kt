@@ -18,9 +18,11 @@ import br.edu.eep.cademeusparca.ui.screens.CadastroInicialScreen
 import br.edu.eep.cademeusparca.ui.screens.ConfirmarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.CriarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.EntrarRoleScreen
+import br.edu.eep.cademeusparca.ui.screens.MapaRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.MeusRolesScreen
 import br.edu.eep.cademeusparca.ui.screens.RoleCriadoScreen
 import br.edu.eep.cademeusparca.ui.screens.SplashScreen
+import br.edu.eep.cademeusparca.viewmodel.MapaRoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.UsuarioViewModel
 
@@ -90,7 +92,24 @@ fun AppNavigation(
                 },
                 onEntrarRoleClick = {
                     navController.navigate("entrar_role")
+                },
+                onRoleClick = { roleId ->
+                    navController.navigate("mapa_role/${Uri.encode(roleId)}") {
+                        launchSingleTop = true
+                    }
                 }
+            )
+        }
+
+        composable(
+            route = "mapa_role/{roleId}",
+            arguments = listOf(navArgument("roleId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val mapaViewModel: MapaRoleViewModel = viewModel()
+            MapaRoleScreen(
+                roleId = backStackEntry.arguments?.getString("roleId").orEmpty(),
+                viewModel = mapaViewModel,
+                onVoltar = { navController.popBackStack() }
             )
         }
 

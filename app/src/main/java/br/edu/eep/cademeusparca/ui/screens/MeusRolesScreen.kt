@@ -28,7 +28,8 @@ import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
 fun MeusRolesScreen(
     viewModel: RoleViewModel,
     onCriarRoleClick: () -> Unit,
-    onEntrarRoleClick: () -> Unit
+    onEntrarRoleClick: () -> Unit,
+    onRoleClick: (String) -> Unit
 ) {
     Scaffold { paddingValues ->
         Column(
@@ -97,7 +98,10 @@ fun MeusRolesScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(viewModel.roles, key = { it.roleId }) { role ->
-                                Card(modifier = Modifier.fillMaxWidth()) {
+                                Card(
+                                    onClick = { onRoleClick(role.roleId) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
                                     Column(
                                         modifier = Modifier.padding(16.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)

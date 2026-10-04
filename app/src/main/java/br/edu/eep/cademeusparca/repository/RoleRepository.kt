@@ -119,6 +119,33 @@ class RoleRepository {
         onResult(null, mensagem)
     }
 
+    fun buscarRolePorId(roleId: String, onResult: (Role?, String?) -> Unit) {
+        if (auth.currentUser == null) {
+            onResult(null, "Usuário não autenticado.")
+            return
+        }
+        if (roleId.isBlank() || roleId.contains('/')) {
+            onResult(null, "Rolê não encontrado.")
+            return
+        }
+
+        firestore.collection("roles").document(roleId)
+            .get(Source.SERVER)
+            .addOnSuccessListener { documento ->
+                val role = try {
+                    documento.toObject(Role::class.java)?.copy(roleId = documento.id)
+                } catch (erro: RuntimeException) {
+                    Log.w("RoleRepository", "Dados inválidos no rolê", erro)
+                    onResult(null, "Não foi possível carregar o nome do rolê.")
+                    return@addOnSuccessListener
+                }
+                onResult(role, if (role == null) "Rolê não encontrado." else null)
+            }
+            .addOnFailureListener {
+                onResult(null, "Não foi possível carregar o nome do rolê.")
+            }
+    }
+
     fun buscarRolePorCodigo(codigo: String, onResult: (Role?, String?) -> Unit) {
         val uid = auth.currentUser?.uid
         if (uid == null) {
