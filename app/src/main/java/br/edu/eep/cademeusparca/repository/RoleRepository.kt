@@ -1,8 +1,11 @@
 package br.edu.eep.cademeusparca.repository
 
+import android.util.Log
 import br.edu.eep.cademeusparca.model.ParticipanteRole
 import br.edu.eep.cademeusparca.model.Role
+import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
@@ -53,6 +56,67 @@ class RoleRepository {
                     .addOnFailureListener { onResult(null, mensagemErro(it)) }
             }
         }
+    }
+
+    fun buscarRolesDoUsuario(onResult: (List<Role>?, String?) -> Unit) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(null, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+
+        firestore.collectionGroup("participantes")
+            .whereEqualTo("userId", uid)
+            .get(Source.SERVER)
+            .addOnSuccessListener { participacoes ->
+                val referencias = participacoes.documents.mapNotNull { participante ->
+                    participante.reference.parent.parent?.takeIf { role ->
+                        role.parent.path == "roles" && participante.id == uid
+                    }
+                }.distinctBy { it.path }
+
+                if (referencias.isEmpty()) {
+                    onResult(emptyList(), null)
+                    return@addOnSuccessListener
+                }
+
+                val consultas = referencias.map { it.get(Source.SERVER) }
+                Tasks.whenAllSuccess<DocumentSnapshot>(consultas)
+                    .addOnSuccessListener { documentos ->
+                        try {
+                            val roles = documentos.mapNotNull { documento ->
+                                if (documento.exists()) {
+                                    documento.toObject(Role::class.java)
+                                        ?.copy(roleId = documento.id)
+                                } else {
+                                    null
+                                }
+                            }
+                            onResult(roles, null)
+                        } catch (erro: RuntimeException) {
+                            falharListagem(erro, onResult)
+                        }
+                    }
+                    .addOnFailureListener { falharListagem(it, onResult) }
+            }
+            .addOnFailureListener { falharListagem(it, onResult) }
+    }
+
+    private fun falharListagem(
+        erro: Exception,
+        onResult: (List<Role>?, String?) -> Unit
+    ) {
+        // O log mantém o diagnóstico, inclusive o link de criação de índice do Firestore.
+        Log.w("RoleRepository", "Erro ao carregar os rolês do usuário", erro)
+        val mensagem = when ((erro as? FirebaseFirestoreException)?.code) {
+            FirebaseFirestoreException.Code.UNAVAILABLE,
+            FirebaseFirestoreException.Code.DEADLINE_EXCEEDED ->
+                "Não foi possível carregar seus rolês. Verifique sua internet e tente novamente."
+            FirebaseFirestoreException.Code.UNAUTHENTICATED ->
+                "Sua autenticação não está disponível. Abra o aplicativo novamente."
+            else -> "Não foi possível carregar seus rolês. Tente novamente."
+        }
+        onResult(null, mensagem)
     }
 
     private fun buscarCodigoDisponivel(

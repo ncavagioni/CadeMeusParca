@@ -2,7 +2,10 @@ package br.edu.eep.cademeusparca.navigation
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -63,8 +66,23 @@ fun AppNavigation(
             )
         }
 
-        composable("meus_roles") {
+        composable("meus_roles") { backStackEntry ->
+            val roleViewModel: RoleViewModel = viewModel()
+
+            DisposableEffect(backStackEntry, roleViewModel) {
+                val observer = LifecycleEventObserver { _, evento ->
+                    if (evento == Lifecycle.Event.ON_RESUME) {
+                        roleViewModel.buscarRolesDoUsuario()
+                    }
+                }
+                backStackEntry.lifecycle.addObserver(observer)
+                onDispose {
+                    backStackEntry.lifecycle.removeObserver(observer)
+                }
+            }
+
             MeusRolesScreen(
+                viewModel = roleViewModel,
                 onCriarRoleClick = {
                     navController.navigate("criar_role")
                 },

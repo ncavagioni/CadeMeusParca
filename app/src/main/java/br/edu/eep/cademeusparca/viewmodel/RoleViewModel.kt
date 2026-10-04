@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import br.edu.eep.cademeusparca.model.Role
 import br.edu.eep.cademeusparca.repository.RoleRepository
+import java.util.Locale
 
 class RoleViewModel : ViewModel() {
 
@@ -25,6 +26,34 @@ class RoleViewModel : ViewModel() {
         private set
     var roleCriado by mutableStateOf<Role?>(null)
         private set
+
+    var roles by mutableStateOf<List<Role>>(emptyList())
+        private set
+    var carregandoListagem by mutableStateOf(false)
+        private set
+    var mensagemListagem by mutableStateOf("")
+        private set
+
+    private var buscaAtual = 0
+
+    fun buscarRolesDoUsuario() {
+        val busca = ++buscaAtual
+        carregandoListagem = true
+        mensagemListagem = ""
+
+        repository.buscarRolesDoUsuario { resultado, erro ->
+            // Uma resposta antiga não pode sobrescrever a consulta feita ao retornar à tela.
+            if (busca != buscaAtual) return@buscarRolesDoUsuario
+
+            roles = resultado.orEmpty().sortedWith(
+                compareBy<Role> { it.nome.lowercase(Locale.ROOT) }
+                    .thenBy { it.nome }
+                    .thenBy { it.roleId }
+            )
+            mensagemListagem = erro ?: ""
+            carregandoListagem = false
+        }
+    }
 
     fun atualizarNome(valor: String) {
         if (carregando) return
