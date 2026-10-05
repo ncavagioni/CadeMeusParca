@@ -23,7 +23,7 @@ class LocationRepository(context: Context) {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun temLocalizacaoPrecisa(): Boolean {
+    fun temLocalizacaoPrecisa(): Boolean {
         return ContextCompat.checkSelfPermission(
             context, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED

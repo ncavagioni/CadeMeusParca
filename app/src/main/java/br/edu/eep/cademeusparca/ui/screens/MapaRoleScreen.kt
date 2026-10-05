@@ -67,12 +67,14 @@ fun MapaRoleScreen(
     // Estados apenas para apresentação: a permissão é reavaliada antes de cada acesso.
     var permissaoConcedida by remember { mutableStateOf(temPermissaoLocalizacao(context)) }
     var permissaoBloqueada by remember { mutableStateOf(false) }
+    var localizacaoPrecisa by remember { mutableStateOf(temLocalizacaoPrecisa(context)) }
     var mapaCarregado by remember { mutableStateOf(false) }
     val cameraPositionState = rememberCameraPositionState()
     val chaveConfigurada = booleanResource(R.bool.maps_key_configured)
 
     fun atualizarPermissao() {
         permissaoConcedida = temPermissaoLocalizacao(context)
+        localizacaoPrecisa = temLocalizacaoPrecisa(context)
         val activity = context.encontrarActivity()
         val rationale = activity != null && (
             ActivityCompat.shouldShowRequestPermissionRationale(
@@ -178,7 +180,7 @@ fun MapaRoleScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (viewModel.carregandoLocalizacao) {
+                if (viewModel.carregandoLocalizacao || viewModel.salvandoLocalizacao) {
                     CircularProgressIndicator()
                 }
             }
@@ -226,30 +228,60 @@ fun MapaRoleScreen(
                     if (viewModel.carregandoLocalizacao) {
                         Text("Obtendo sua localização...", style = MaterialTheme.typography.bodyMedium)
                     }
+                    if (viewModel.salvandoLocalizacao) {
+                        Text(
+                            "Salvando sua posição... Aguardando confirmação do servidor.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    if (!localizacaoPrecisa) {
+                        Text(
+                            "Habilite a localização precisa para compartilhar sua posição.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.fromParts("package", context.packageName, null)
+                                    )
+                                )
+                            },
+                            enabled = !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Habilitar localização precisa")
+                        }
+                    }
                     if (viewModel.mensagemLocalizacao.isNotBlank()) {
                         Text(
                             viewModel.mensagemLocalizacao,
-                            color = MaterialTheme.colorScheme.error,
+                            color = if (viewModel.posicaoAtualizada) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
                     OutlinedButton(
                         onClick = {
                             atualizarPermissao()
-                            viewModel.obterLocalizacaoAtual()
+                            viewModel.atualizarMinhaPosicao(roleId)
                         },
-                        enabled = !viewModel.carregandoLocalizacao,
+                        enabled = !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            if (localizacao == null) "Tentar obter localização"
-                            else "Atualizar minha posição"
-                        )
+                        Text("Atualizar minha posição")
                     }
                 }
             }
         }
     }
+}
+
+private fun temLocalizacaoPrecisa(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context, Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun temPermissaoLocalizacao(context: Context): Boolean {
