@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +52,7 @@ import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
+import java.text.DateFormat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,20 +100,26 @@ fun MapaRoleScreen(
         viewModel.carregarRole(roleId)
     }
 
-    DisposableEffect(lifecycleOwner, viewModel) {
+    DisposableEffect(lifecycleOwner, viewModel, roleId) {
         val observer = LifecycleEventObserver { _, evento ->
             when (evento) {
                 Lifecycle.Event.ON_RESUME -> {
                     atualizarPermissao()
                     viewModel.verificarLocalizacaoAoAbrir()
+                    viewModel.iniciarObservacao(roleId)
                 }
+                Lifecycle.Event.ON_PAUSE -> viewModel.pararObservacao()
                 Lifecycle.Event.ON_STOP -> viewModel.cancelarBuscaLocalizacao()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            viewModel.iniciarObservacao(roleId)
+        }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.pararObservacao()
             viewModel.cancelarBuscaLocalizacao()
         }
     }
@@ -150,6 +158,25 @@ fun MapaRoleScreen(
                     color = MaterialTheme.colorScheme.error
                 )
             }
+            if (viewModel.carregandoParticipantes) {
+                Text("Carregando posições dos parças...", modifier = Modifier.padding(12.dp))
+            }
+            if (viewModel.mensagemLeitura.isNotBlank()) {
+                Text(
+                    viewModel.mensagemLeitura,
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (viewModel.mensagemPerfis.isNotBlank()) {
+                Text(
+                    viewModel.mensagemPerfis,
+                    modifier = Modifier.padding(12.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             Box(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentAlignment = Alignment.Center
@@ -164,13 +191,20 @@ fun MapaRoleScreen(
                         ),
                         onMapLoaded = { mapaCarregado = true }
                     ) {
-                        localizacao?.let {
-                            Marker(
-                                state = rememberUpdatedMarkerState(
-                                    position = LatLng(it.latitude, it.longitude)
-                                ),
-                                title = "Você"
-                            )
+                        viewModel.localizacoesNoMapa.forEach { participante ->
+                            key(participante.userId) {
+                                Marker(
+                                    state = rememberUpdatedMarkerState(
+                                        position = LatLng(participante.latitude, participante.longitude)
+                                    ),
+                                    title = viewModel.tituloMarcador(participante.userId),
+                                    snippet = participante.atualizadoEm?.let {
+                                        "Atualizado em " + DateFormat.getDateTimeInstance(
+                                            DateFormat.SHORT, DateFormat.SHORT
+                                        ).format(it.toDate())
+                                    }
+                                )
+                            }
                         }
                     }
                 } else {
