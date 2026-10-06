@@ -44,12 +44,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import br.edu.eep.cademeusparca.R
+import br.edu.eep.cademeusparca.ui.components.ParticipanteMapMarker
 import br.edu.eep.cademeusparca.viewmodel.MapaRoleViewModel
-import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
 import java.text.DateFormat
@@ -70,8 +71,8 @@ fun MapaRoleScreen(
     var permissaoConcedida by remember { mutableStateOf(temPermissaoLocalizacao(context)) }
     var permissaoBloqueada by remember { mutableStateOf(false) }
     var localizacaoPrecisa by remember { mutableStateOf(temLocalizacaoPrecisa(context)) }
-    var mapaCarregado by remember { mutableStateOf(false) }
-    val cameraPositionState = rememberCameraPositionState()
+    // Selecionada uma única vez por entrada; atualizações posteriores movem só os marcadores.
+    var posicaoInicialCamera by remember(roleId) { mutableStateOf<LatLng?>(null) }
     val chaveConfigurada = booleanResource(R.bool.maps_key_configured)
 
     fun atualizarPermissao() {
@@ -93,7 +94,10 @@ fun MapaRoleScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
         atualizarPermissao()
-        viewModel.verificarLocalizacaoAoAbrir()
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            viewModel.verificarLocalizacaoAoAbrir()
+            viewModel.iniciarObservacao(roleId)
+        }
     }
 
     LaunchedEffect(roleId) {
@@ -108,13 +112,15 @@ fun MapaRoleScreen(
                     viewModel.verificarLocalizacaoAoAbrir()
                     viewModel.iniciarObservacao(roleId)
                 }
-                Lifecycle.Event.ON_PAUSE -> viewModel.pararObservacao()
-                Lifecycle.Event.ON_STOP -> viewModel.cancelarBuscaLocalizacao()
+                Lifecycle.Event.ON_PAUSE -> viewModel.pausarLocalizacao()
+                Lifecycle.Event.ON_STOP -> viewModel.pararObservacao()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            atualizarPermissao()
+            viewModel.verificarLocalizacaoAoAbrir()
             viewModel.iniciarObservacao(roleId)
         }
         onDispose {
@@ -124,14 +130,18 @@ fun MapaRoleScreen(
         }
     }
 
-    val localizacao = viewModel.localizacao
-    LaunchedEffect(localizacao, mapaCarregado) {
-        if (mapaCarregado && localizacao != null) {
-            cameraPositionState.animate(
-                CameraUpdateFactory.newLatLngZoom(
-                    LatLng(localizacao.latitude, localizacao.longitude), 16f
-                )
-            )
+    val posicaoAndroid = viewModel.localizacao?.let {
+        posicaoUtilParaCamera(it.latitude, it.longitude)
+    }
+    val propriaSalva = viewModel.localizacoesParticipantes.firstOrNull {
+        viewModel.userIdAtual.isNotBlank() && it.userId == viewModel.userIdAtual
+    }
+    val posicaoPreferida = posicaoAndroid ?: propriaSalva?.let {
+        posicaoUtilParaCamera(it.latitude, it.longitude)
+    }
+    LaunchedEffect(roleId, posicaoPreferida) {
+        if (posicaoInicialCamera == null && posicaoPreferida != null) {
+            posicaoInicialCamera = posicaoPreferida
         }
     }
 
@@ -182,28 +192,52 @@ fun MapaRoleScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (chaveConfigurada) {
-                    GoogleMap(
-                        modifier = Modifier.fillMaxSize(),
-                        cameraPositionState = cameraPositionState,
-                        uiSettings = MapUiSettings(
-                            mapToolbarEnabled = false,
-                            myLocationButtonEnabled = false
-                        ),
-                        onMapLoaded = { mapaCarregado = true }
-                    ) {
-                        viewModel.localizacoesNoMapa.forEach { participante ->
-                            key(participante.userId) {
-                                Marker(
-                                    state = rememberUpdatedMarkerState(
-                                        position = LatLng(participante.latitude, participante.longitude)
-                                    ),
-                                    title = viewModel.tituloMarcador(participante.userId),
-                                    snippet = participante.atualizadoEm?.let {
-                                        "Atualizado em " + DateFormat.getDateTimeInstance(
-                                            DateFormat.SHORT, DateFormat.SHORT
-                                        ).format(it.toDate())
-                                    }
+                    val posicaoInicial = posicaoInicialCamera
+                    if (posicaoInicial == null) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator()
+                            Text("Obtendo sua posição...")
+                        }
+                    } else {
+                        key(roleId) {
+                            val cameraPositionState = rememberCameraPositionState {
+                                position = CameraPosition.fromLatLngZoom(posicaoInicial, 16f)
+                            }
+                            GoogleMap(
+                                modifier = Modifier.fillMaxSize(),
+                                cameraPositionState = cameraPositionState,
+                                uiSettings = MapUiSettings(
+                                    mapToolbarEnabled = false,
+                                    myLocationButtonEnabled = false
                                 )
+                            ) {
+                                viewModel.localizacoesNoMapa.forEach { participante ->
+                                    key(participante.userId) {
+                                        val titulo = viewModel.tituloMarcador(participante.userId)
+                                        val proprioUsuario = participante.userId == viewModel.userIdAtual
+                                        MarkerComposable(
+                                            titulo,
+                                            proprioUsuario,
+                                            state = rememberUpdatedMarkerState(
+                                                position = LatLng(participante.latitude, participante.longitude)
+                                            ),
+                                            title = titulo,
+                                            snippet = participante.atualizadoEm?.let {
+                                                "Atualizado em " + DateFormat.getDateTimeInstance(
+                                                    DateFormat.SHORT, DateFormat.SHORT
+                                                ).format(it.toDate())
+                                            }
+                                        ) {
+                                            ParticipanteMapMarker(
+                                                titulo = titulo,
+                                                proprioUsuario = proprioUsuario
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -214,7 +248,9 @@ fun MapaRoleScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (viewModel.carregandoLocalizacao || viewModel.salvandoLocalizacao) {
+                if (posicaoInicialCamera != null &&
+                    (viewModel.carregandoLocalizacao || viewModel.salvandoLocalizacao)
+                ) {
                     CircularProgressIndicator()
                 }
             }
@@ -310,6 +346,15 @@ fun MapaRoleScreen(
             }
         }
     }
+}
+
+// (0,0) não é usado como centro inicial útil; os dados de localização não são alterados.
+private fun posicaoUtilParaCamera(latitude: Double, longitude: Double): LatLng? {
+    if (!latitude.isFinite() || !longitude.isFinite() ||
+        latitude !in -90.0..90.0 || longitude !in -180.0..180.0 ||
+        (latitude == 0.0 && longitude == 0.0)
+    ) return null
+    return LatLng(latitude, longitude)
 }
 
 private fun temLocalizacaoPrecisa(context: Context): Boolean {
