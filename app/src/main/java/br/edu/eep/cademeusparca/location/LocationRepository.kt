@@ -20,7 +20,7 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationToken
 
-class LocationRepository(context: Context) {
+class LocationRepository(context: Context, private val TAG: String = "LocationRepository") {
     private val context = context.applicationContext
     private val client = LocationServices.getFusedLocationProviderClient(this.context)
     private var locationCallback: LocationCallback? = null
@@ -39,7 +39,9 @@ class LocationRepository(context: Context) {
 
     fun iniciarAtualizacoes(
         onLocation: (Location) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        onRegistered: () -> Unit = {},
+        onAvailability: (Boolean) -> Unit = {}
     ): Boolean {
         if (!temLocalizacaoPrecisa()) {
             onError("Habilite a localização precisa para compartilhar sua posição automaticamente.")
@@ -93,6 +95,7 @@ class LocationRepository(context: Context) {
                     "LOCATION_AVAILABILITY timestamp=${System.currentTimeMillis()} " +
                         "available=${availability.isLocationAvailable}"
                 )
+                onAvailability(availability.isLocationAvailable)
             }
         }
         locationCallback = callback
@@ -117,8 +120,9 @@ class LocationRepository(context: Context) {
                             "LOCATION_UPDATES_REGISTERED timestamp=${System.currentTimeMillis()} " +
                                 "callbackId=${System.identityHashCode(callback)}"
                         )
+                        onRegistered()
                     } else {
-                        // A tela pode ter pausado enquanto o registro estava pendente.
+                        // O proprietário pode ter encerrado a coleta enquanto o registro estava pendente.
                         removerCallback(callback)
                     }
                 }
@@ -216,7 +220,7 @@ class LocationRepository(context: Context) {
         }
     }
 
-    private fun localizacaoDoAparelhoAtivada(): Boolean {
+    fun localizacaoDoAparelhoAtivada(): Boolean {
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return LocationManagerCompat.isLocationEnabled(manager)
     }
@@ -230,7 +234,6 @@ class LocationRepository(context: Context) {
     }
 
     private companion object {
-        const val TAG = "LocationRepository"
         const val INTERVALO_ATUALIZACAO_MS = 10_000L
     }
 }

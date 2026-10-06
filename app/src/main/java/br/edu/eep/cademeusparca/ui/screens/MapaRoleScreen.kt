@@ -7,7 +7,9 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -71,6 +73,13 @@ fun MapaRoleScreen(
     var permissaoConcedida by remember { mutableStateOf(temPermissaoLocalizacao(context)) }
     var permissaoBloqueada by remember { mutableStateOf(false) }
     var localizacaoPrecisa by remember { mutableStateOf(temLocalizacaoPrecisa(context)) }
+    var notificacoesPermitidas by remember { mutableStateOf(temPermissaoNotificacoes(context)) }
+
+    fun iniciarCompartilhamentoVisivel() {
+        (context.encontrarActivity() as? ComponentActivity)?.let {
+            viewModel.iniciarCompartilhamento(it, roleId)
+        }
+    }
     // Selecionada uma única vez por entrada; atualizações posteriores movem só os marcadores.
     var posicaoInicialCamera by remember(roleId) { mutableStateOf<LatLng?>(null) }
     val chaveConfigurada = booleanResource(R.bool.maps_key_configured)
@@ -78,6 +87,7 @@ fun MapaRoleScreen(
     fun atualizarPermissao() {
         permissaoConcedida = temPermissaoLocalizacao(context)
         localizacaoPrecisa = temLocalizacaoPrecisa(context)
+        notificacoesPermitidas = temPermissaoNotificacoes(context)
         val activity = context.encontrarActivity()
         val rationale = activity != null && (
             ActivityCompat.shouldShowRequestPermissionRationale(
@@ -97,7 +107,18 @@ fun MapaRoleScreen(
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
             viewModel.verificarLocalizacaoAoAbrir()
             viewModel.iniciarObservacao(roleId)
+            iniciarCompartilhamentoVisivel()
         }
+    }
+
+    // Solicitação separada, somente por ação explícita; negar não interrompe o serviço.
+    val notificationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        notificacoesPermitidas = temPermissaoNotificacoes(context)
+        if (notificacoesPermitidas &&
+            lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        ) iniciarCompartilhamentoVisivel()
     }
 
     LaunchedEffect(roleId) {
@@ -111,6 +132,7 @@ fun MapaRoleScreen(
                     atualizarPermissao()
                     viewModel.verificarLocalizacaoAoAbrir()
                     viewModel.iniciarObservacao(roleId)
+                    iniciarCompartilhamentoVisivel()
                 }
                 Lifecycle.Event.ON_PAUSE -> viewModel.pausarLocalizacao()
                 Lifecycle.Event.ON_STOP -> viewModel.pararObservacao()
@@ -122,6 +144,7 @@ fun MapaRoleScreen(
             atualizarPermissao()
             viewModel.verificarLocalizacaoAoAbrir()
             viewModel.iniciarObservacao(roleId)
+            iniciarCompartilhamentoVisivel()
         }
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
@@ -258,6 +281,38 @@ fun MapaRoleScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Text(
+                    viewModel.mensagemCompartilhamento,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !notificacoesPermitidas && localizacaoPrecisa
+                ) {
+                    Text(
+                        "Permita notificações para ver o compartilhamento e a ação de parar. " +
+                            "O serviço pode continuar mesmo sem essa permissão.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            val activity = context.encontrarActivity()
+                            val bloqueada = preferencias.getBoolean("notificacoes_solicitada", false) &&
+                                activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(
+                                    activity, Manifest.permission.POST_NOTIFICATIONS
+                                )
+                            if (bloqueada) {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.fromParts("package", context.packageName, null))
+                                )
+                            } else {
+                                preferencias.edit().putBoolean("notificacoes_solicitada", true).apply()
+                                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Permitir notificações") }
+                }
                 if (!permissaoConcedida) {
                     Text(
                         "Permita a localização durante o uso para mostrar sua posição no mapa.",
@@ -356,6 +411,11 @@ private fun posicaoUtilParaCamera(latitude: Double, longitude: Double): LatLng? 
     ) return null
     return LatLng(latitude, longitude)
 }
+
+private fun temPermissaoNotificacoes(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
 
 private fun temLocalizacaoPrecisa(context: Context): Boolean {
     return ContextCompat.checkSelfPermission(

@@ -137,7 +137,7 @@ class LocalizacaoRepository {
             .addOnFailureListener { erro ->
                 Log.w(
                     TAG,
-                    "FIRESTORE_WRITE_FAILURE timestamp=${System.currentTimeMillis()} " +
+                    "FIRESTORE_WRITE_ERROR timestamp=${System.currentTimeMillis()} " +
                         "duracaoMs=${SystemClock.elapsedRealtime() - inicioGravacao} " +
                         "code=${(erro as? FirebaseFirestoreException)?.code} " +
                         "type=${erro.javaClass.simpleName}"

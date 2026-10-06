@@ -8,14 +8,20 @@ import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.activity.ComponentActivity
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import br.edu.eep.cademeusparca.location.LocationRepository
 import br.edu.eep.cademeusparca.model.LocalizacaoParticipante
+import br.edu.eep.cademeusparca.repository.CompartilhamentoLocalizacaoRepository
 import br.edu.eep.cademeusparca.repository.LocalizacaoRepository
+import br.edu.eep.cademeusparca.repository.StatusCompartilhamento
+import br.edu.eep.cademeusparca.service.LocationServiceController
 import br.edu.eep.cademeusparca.repository.RoleRepository
 import br.edu.eep.cademeusparca.repository.UsuarioRepository
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.launch
 
 class MapaRoleViewModel(application: Application) : AndroidViewModel(application) {
     private val roleRepository = RoleRepository()
@@ -30,20 +36,38 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private var geracaoObservacao = 0
     private var cancellationSource: CancellationTokenSource? = null
     private var tentativaLocalizacaoFeita = false
-    private var roleAtualizacaoAutomatica: String? = null
-    private var geracaoAtualizacaoAutomatica = 0
     private var mapaResumido = false
     private val handler = Handler(Looper.getMainLooper())
     private var recuperacao: Runnable? = null
-    private val filaGravacao = FilaUltimaPosicao<GravacaoLocalizacao>()
     private var versaoManual = 0
+    private val compartilhamento = CompartilhamentoLocalizacaoRepository
 
-    private data class GravacaoLocalizacao(
-        val roleId: String,
-        val location: Location,
-        val geracao: Int,
-        val versaoManual: Int
-    )
+    var mensagemCompartilhamento by mutableStateOf("Compartilhamento parado")
+        private set
+
+    fun iniciarCompartilhamento(activity: ComponentActivity, roleId: String) {
+        LocationServiceController.iniciar(activity, roleId)
+    }
+
+    private fun atualizarEstadoCompartilhamento() {
+        val estado = compartilhamento.estado.value
+        mensagemCompartilhamento = if (estado.roleId != null && estado.roleId != roleObservado &&
+            estado.status in setOf(StatusCompartilhamento.INICIANDO, StatusCompartilhamento.COMPARTILHANDO)
+        ) {
+            "Compartilhando em outro rolê"
+        } else when (estado.status) {
+            StatusCompartilhamento.PARADO -> "Compartilhamento parado"
+            StatusCompartilhamento.INICIANDO -> "Iniciando compartilhamento..."
+            StatusCompartilhamento.COMPARTILHANDO -> "Compartilhando localização"
+            StatusCompartilhamento.ERRO -> estado.erro ?: "Erro no compartilhamento"
+        }
+        if (estado.roleId == roleObservado &&
+            estado.userId == userIdAtual && userIdAtual == usuarioRepository.userIdAtual &&
+            locationRepository.temPermissao()
+        ) {
+            estado.localizacao?.let(::atualizarPosicaoLocal)
+        }
+    }
 
     var nomeRole by mutableStateOf("")
         private set
@@ -76,6 +100,13 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         private set
     private var meuParcaname by mutableStateOf("")
 
+    init {
+        compartilhamento.configurar(application)
+        viewModelScope.launch {
+            compartilhamento.estado.collect { atualizarEstadoCompartilhamento() }
+        }
+    }
+
     fun tituloMarcador(userId: String): String {
         val nome = parcanames[userId]
             ?: meuParcaname.takeIf { userId == userIdAtual && it.isNotBlank() }
@@ -88,7 +119,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         get() {
             val porUsuario = localizacoesParticipantes.associateBy { it.userId }.toMutableMap()
             // A posição Android tem prioridade apenas para o próprio usuário.
-            // A câmera continua observando somente localizacao, nunca esta lista.
+            // A câmera inicial usa a posição Android ou o próprio documento remoto como fallback.
             localizacao?.let { propria ->
                 if (userIdAtual.isNotBlank()) {
                     val salva = porUsuario[userIdAtual]
@@ -117,7 +148,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         mapaResumido = true
         recuperacao?.let(handler::removeCallbacks)
         recuperacao = null
-        iniciarAtualizacaoAutomatica(roleId)
+        atualizarEstadoCompartilhamento()
         val geracao = geracaoObservacao
 
         if (listenerParcanames == null) {
@@ -159,14 +190,15 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
-        processarFilaGravacao()
     }
 
     fun pausarLocalizacao() {
         mapaResumido = false
         recuperacao?.let(handler::removeCallbacks)
         recuperacao = null
-        pararAtualizacaoAutomatica()
+        // Só cancela a busca pontual/feedback da tela. O serviço continua compartilhando.
+        versaoManual++
+        salvandoLocalizacao = false
         cancelarBuscaLocalizacao()
     }
 
@@ -198,44 +230,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         handler.postDelayed(tarefa, RECUPERACAO_MS)
     }
 
-    private fun iniciarAtualizacaoAutomatica(roleId: String) {
-        if (!mapaResumido) return
-        if (!locationRepository.temLocalizacaoPrecisa()) {
-            pararAtualizacaoAutomatica()
-            return
-        }
-        if (roleAtualizacaoAutomatica == roleId) return
-        pararAtualizacaoAutomatica()
-
-        roleAtualizacaoAutomatica = roleId
-        val geracao = geracaoAtualizacaoAutomatica
-        Log.d(
-            TAG,
-            "AUTO_LOCATION_START timestamp=${System.currentTimeMillis()} " +
-                "roleId=${roleId.take(8)} generation=$geracao"
-        )
-        val iniciou = locationRepository.iniciarAtualizacoes(
-            onLocation = localizacaoRecebida@ { novaLocalizacao ->
-                if (!mapaResumido || geracao != geracaoAtualizacaoAutomatica ||
-                    roleAtualizacaoAutomatica != roleId
-                ) return@localizacaoRecebida
-                atualizarPosicaoLocal(novaLocalizacao)
-                // Um resultado pontual pode ter obtido uma posição ainda mais recente.
-                // O callback continua acionando a escrita, sempre com a posição mais nova.
-                localizacao?.let { enfileirarLocalizacao(roleId, it) }
-            },
-            onError = erro@ { mensagem ->
-                if (geracao != geracaoAtualizacaoAutomatica ||
-                    roleAtualizacaoAutomatica != roleId
-                ) return@erro
-                roleAtualizacaoAutomatica = null
-                mensagemLocalizacao = mensagem
-                agendarRecuperacao()
-            }
-        )
-        if (!iniciou) roleAtualizacaoAutomatica = null
-    }
-
     private fun atualizarPosicaoLocal(nova: Location): Boolean {
         val anterior = localizacao
         if (anterior != null && nova.elapsedRealtimeNanos < anterior.elapsedRealtimeNanos) {
@@ -253,63 +247,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
             "MARKERS_STATE_UPDATED timestamp=${System.currentTimeMillis()} " +
                 "count=${localizacoesNoMapa.size} source=$origem"
         )
-    }
-
-    private fun enfileirarLocalizacao(roleId: String, location: Location) {
-        if (!mapaResumido || roleObservado != roleId ||
-            !locationRepository.temLocalizacaoPrecisa()
-        ) return
-        filaGravacao.oferecer(
-            GravacaoLocalizacao(roleId, Location(location), geracaoAtualizacaoAutomatica, versaoManual)
-        )
-        Log.d(TAG, "LOCATION_WRITE_QUEUED timestamp=${System.currentTimeMillis()}")
-        processarFilaGravacao()
-    }
-
-    private fun processarFilaGravacao() {
-        if (!mapaResumido || !locationRepository.temLocalizacaoPrecisa()) return
-        val pedido = filaGravacao.retirarParaGravar() ?: return
-        if (pedido.roleId != roleObservado || pedido.geracao != geracaoAtualizacaoAutomatica) {
-            filaGravacao.concluir()
-            return
-        }
-        val location = pedido.location
-        localizacaoRepository.salvarMinhaLocalizacao(
-            roleId = pedido.roleId,
-            latitude = location.latitude,
-            longitude = location.longitude,
-            precisao = if (location.hasAccuracy()) location.accuracy.toDouble() else null
-        ) { sucesso, erro ->
-            // A Task não é cancelável: liberar a fila mesmo se a sessão que escreveu já saiu.
-            filaGravacao.concluir()
-            val sessaoAtual = mapaResumido && pedido.roleId == roleObservado &&
-                pedido.geracao == geracaoAtualizacaoAutomatica
-            if (sessaoAtual) {
-                posicaoAtualizada = sucesso
-                if (salvandoLocalizacao && pedido.versaoManual == versaoManual) {
-                    salvandoLocalizacao = false
-                }
-                mensagemLocalizacao = if (sucesso) "Posição atualizada."
-                else erro ?: "Não foi possível atualizar sua posição."
-                if (!sucesso) {
-                    // Se chegou uma posição mais nova, ela tem prioridade sobre a que falhou.
-                    filaGravacao.reporSeVazia(pedido)
-                    agendarRecuperacao()
-                    return@salvarMinhaLocalizacao
-                }
-            }
-            // Pode haver uma posição da nova sessão esperando a Task anterior terminar.
-            processarFilaGravacao()
-        }
-    }
-
-    private fun pararAtualizacaoAutomatica() {
-        geracaoAtualizacaoAutomatica++
-        roleAtualizacaoAutomatica = null
-        filaGravacao.descartarPendente()
-        salvandoLocalizacao = false
-        versaoManual++
-        locationRepository.pararAtualizacoes()
     }
 
     fun atualizarMinhaPosicao(roleId: String) {
@@ -370,9 +307,16 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
                 }
                 val maisRecente = if (aceita) location else localizacao ?: return@obterLocalizacaoAtual
                 if (!mapaResumido || roleObservado != roleIdParaSalvar) return@obterLocalizacaoAtual
-                versaoManual++
+                val versao = ++versaoManual
                 salvandoLocalizacao = true
-                enfileirarLocalizacao(roleIdParaSalvar, maisRecente)
+                compartilhamento.salvarManual(roleIdParaSalvar, maisRecente) { sucesso, mensagem ->
+                    if (versao == versaoManual && mapaResumido && roleObservado == roleIdParaSalvar) {
+                        salvandoLocalizacao = false
+                        posicaoAtualizada = sucesso
+                        mensagemLocalizacao = if (sucesso) "Posição atualizada."
+                        else mensagem ?: "Não foi possível atualizar sua posição."
+                    }
+                }
             }
         }
     }
