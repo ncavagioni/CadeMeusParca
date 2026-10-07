@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import br.edu.eep.cademeusparca.location.DistanciaUtils
 import br.edu.eep.cademeusparca.location.LocationRepository
 import br.edu.eep.cademeusparca.model.LocalizacaoParticipante
 import br.edu.eep.cademeusparca.repository.CompartilhamentoLocalizacaoRepository
@@ -113,6 +114,27 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         return if (userId == userIdAtual) {
             if (nome == null) "Você" else "$nome (Você)"
         } else nome ?: "Parça (nome indisponível)"
+    }
+
+    fun distanciaFormatadaAte(participante: LocalizacaoParticipante): String? {
+        if (userIdAtual.isBlank() || participante.userId == userIdAtual) return null
+
+        val propriaAndroid = localizacao?.takeIf {
+            DistanciaUtils.coordenadasValidas(it.latitude, it.longitude)
+        }
+        val propriaSalva = localizacoesParticipantes.firstOrNull {
+            it.userId == userIdAtual &&
+                DistanciaUtils.coordenadasValidas(it.latitude, it.longitude)
+        }
+        val latitudeOrigem = propriaAndroid?.latitude ?: propriaSalva?.latitude ?: return null
+        val longitudeOrigem = propriaAndroid?.longitude ?: propriaSalva?.longitude ?: return null
+        val metros = DistanciaUtils.calcularMetros(
+            latitudeOrigem,
+            longitudeOrigem,
+            participante.latitude,
+            participante.longitude
+        ) ?: return null
+        return DistanciaUtils.formatar(metros)
     }
 
     val localizacoesNoMapa: List<LocalizacaoParticipante>

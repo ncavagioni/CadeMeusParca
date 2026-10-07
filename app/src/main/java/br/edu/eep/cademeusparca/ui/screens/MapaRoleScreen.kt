@@ -241,22 +241,30 @@ fun MapaRoleScreen(
                                     key(participante.userId) {
                                         val titulo = viewModel.tituloMarcador(participante.userId)
                                         val proprioUsuario = participante.userId == viewModel.userIdAtual
+                                        val distancia = viewModel.distanciaFormatadaAte(participante)
+                                        val atualizadoEm = participante.atualizadoEm?.let {
+                                            "Atualizado em " + DateFormat.getDateTimeInstance(
+                                                DateFormat.SHORT, DateFormat.SHORT
+                                            ).format(it.toDate())
+                                        }
+                                        val detalhes = listOfNotNull(
+                                            distancia?.let { "Distância: $it" },
+                                            atualizadoEm
+                                        ).joinToString("\n").ifBlank { null }
                                         MarkerComposable(
                                             titulo,
                                             proprioUsuario,
+                                            distancia.orEmpty(),
                                             state = rememberUpdatedMarkerState(
                                                 position = LatLng(participante.latitude, participante.longitude)
                                             ),
                                             title = titulo,
-                                            snippet = participante.atualizadoEm?.let {
-                                                "Atualizado em " + DateFormat.getDateTimeInstance(
-                                                    DateFormat.SHORT, DateFormat.SHORT
-                                                ).format(it.toDate())
-                                            }
+                                            snippet = detalhes
                                         ) {
                                             ParticipanteMapMarker(
                                                 titulo = titulo,
-                                                proprioUsuario = proprioUsuario
+                                                proprioUsuario = proprioUsuario,
+                                                distancia = distancia
                                             )
                                         }
                                     }

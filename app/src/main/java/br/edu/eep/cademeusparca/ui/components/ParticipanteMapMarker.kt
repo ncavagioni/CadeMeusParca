@@ -22,7 +22,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ParticipanteMapMarker(
     titulo: String,
-    proprioUsuario: Boolean
+    proprioUsuario: Boolean,
+    distancia: String? = null
 ) {
     val corMarcador = if (proprioUsuario) {
         MaterialTheme.colorScheme.primary
@@ -47,14 +48,27 @@ fun ParticipanteMapMarker(
             shadowElevation = 3.dp,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Text(
-                text = titulo,
-                modifier = Modifier.widthIn(max = 160.dp).padding(horizontal = 8.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Column(
+                modifier = Modifier.widthIn(max = 160.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = titulo,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                distancia?.takeUnless { proprioUsuario }?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
         }
         Spacer(Modifier.size(3.dp))
         Surface(
