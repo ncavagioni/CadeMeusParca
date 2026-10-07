@@ -23,18 +23,21 @@ import androidx.compose.ui.unit.dp
 fun ParticipanteMapMarker(
     titulo: String,
     proprioUsuario: Boolean,
-    distancia: String? = null
+    distancia: String? = null,
+    vistoPorUltimo: String? = null,
+    localizacaoRecente: Boolean = true
 ) {
-    val corMarcador = if (proprioUsuario) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.secondary
+    val corMarcador = when {
+        proprioUsuario -> MaterialTheme.colorScheme.primary
+        !localizacaoRecente -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.secondary
     }
-    val corInicial = if (proprioUsuario) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSecondary
+    val corInicial = when {
+        proprioUsuario -> MaterialTheme.colorScheme.onPrimary
+        !localizacaoRecente -> MaterialTheme.colorScheme.surface
+        else -> MaterialTheme.colorScheme.onSecondary
     }
+    val textoSecundario = if (localizacaoRecente) distancia else vistoPorUltimo
     val inicial = titulo.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
 
     Column(
@@ -60,7 +63,7 @@ fun ParticipanteMapMarker(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                distancia?.takeUnless { proprioUsuario }?.let {
+                textoSecundario?.takeUnless { proprioUsuario }?.let {
                     Text(
                         text = it,
                         style = MaterialTheme.typography.labelSmall,

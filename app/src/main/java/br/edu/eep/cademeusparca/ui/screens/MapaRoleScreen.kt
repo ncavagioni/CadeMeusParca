@@ -241,20 +241,28 @@ fun MapaRoleScreen(
                                     key(participante.userId) {
                                         val titulo = viewModel.tituloMarcador(participante.userId)
                                         val proprioUsuario = participante.userId == viewModel.userIdAtual
+                                        val recente = viewModel.localizacaoRecente(participante)
                                         val distancia = viewModel.distanciaFormatadaAte(participante)
+                                        val vistoPorUltimo = viewModel.vistoPorUltimo(participante)
                                         val atualizadoEm = participante.atualizadoEm?.let {
-                                            "Atualizado em " + DateFormat.getDateTimeInstance(
+                                            val prefixo = if (proprioUsuario || recente) {
+                                                "Atualizado em "
+                                            } else "Visto por último: "
+                                            prefixo + DateFormat.getDateTimeInstance(
                                                 DateFormat.SHORT, DateFormat.SHORT
                                             ).format(it.toDate())
                                         }
                                         val detalhes = listOfNotNull(
                                             distancia?.let { "Distância: $it" },
+                                            vistoPorUltimo,
                                             atualizadoEm
                                         ).joinToString("\n").ifBlank { null }
                                         MarkerComposable(
                                             titulo,
                                             proprioUsuario,
                                             distancia.orEmpty(),
+                                            vistoPorUltimo.orEmpty(),
+                                            recente,
                                             state = rememberUpdatedMarkerState(
                                                 position = LatLng(participante.latitude, participante.longitude)
                                             ),
@@ -264,7 +272,9 @@ fun MapaRoleScreen(
                                             ParticipanteMapMarker(
                                                 titulo = titulo,
                                                 proprioUsuario = proprioUsuario,
-                                                distancia = distancia
+                                                distancia = distancia,
+                                                vistoPorUltimo = vistoPorUltimo,
+                                                localizacaoRecente = recente
                                             )
                                         }
                                     }

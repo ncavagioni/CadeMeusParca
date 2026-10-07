@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Aliases vetoriais para launchers anteriores aos Adaptive Icons.
+         anydpi tem prioridade sobre os antigos mipmaps raster por densidade. -->
+    <item name="ic_launcher" type="mipmap">@drawable/ic_launcher</item>
+    <item name="ic_launcher_round" type="mipmap">@drawable/ic_launcher_round</item>
+</resources>

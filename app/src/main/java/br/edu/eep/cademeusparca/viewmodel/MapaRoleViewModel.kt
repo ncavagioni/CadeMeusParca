@@ -13,6 +13,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import br.edu.eep.cademeusparca.location.DistanciaUtils
 import br.edu.eep.cademeusparca.location.LocationRepository
+import br.edu.eep.cademeusparca.location.LocalizacaoTempoUtils
 import br.edu.eep.cademeusparca.model.LocalizacaoParticipante
 import br.edu.eep.cademeusparca.repository.CompartilhamentoLocalizacaoRepository
 import br.edu.eep.cademeusparca.repository.LocalizacaoRepository
@@ -22,6 +23,8 @@ import br.edu.eep.cademeusparca.repository.RoleRepository
 import br.edu.eep.cademeusparca.repository.UsuarioRepository
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.firebase.firestore.ListenerRegistration
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MapaRoleViewModel(application: Application) : AndroidViewModel(application) {
@@ -41,6 +44,8 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private val handler = Handler(Looper.getMainLooper())
     private var recuperacao: Runnable? = null
     private var versaoManual = 0
+    private var tickerTempo: Job? = null
+    private var agoraMs by mutableStateOf(System.currentTimeMillis())
     private val compartilhamento = CompartilhamentoLocalizacaoRepository
 
     var mensagemCompartilhamento by mutableStateOf("Compartilhamento parado")
@@ -116,8 +121,19 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         } else nome ?: "Parça (nome indisponível)"
     }
 
+    fun localizacaoRecente(participante: LocalizacaoParticipante): Boolean =
+        LocalizacaoTempoUtils.estaAtualizada(participante.atualizadoEm, agoraMs)
+
+    fun vistoPorUltimo(participante: LocalizacaoParticipante): String? {
+        if (participante.userId == userIdAtual || localizacaoRecente(participante)) return null
+        return LocalizacaoTempoUtils.formatarVistoPorUltimo(participante.atualizadoEm, agoraMs)
+            ?: "Horário indisponível"
+    }
+
     fun distanciaFormatadaAte(participante: LocalizacaoParticipante): String? {
-        if (userIdAtual.isBlank() || participante.userId == userIdAtual) return null
+        if (userIdAtual.isBlank() || participante.userId == userIdAtual ||
+            !localizacaoRecente(participante)
+        ) return null
 
         val propriaAndroid = localizacao?.takeIf {
             DistanciaUtils.coordenadasValidas(it.latitude, it.longitude)
@@ -168,6 +184,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
             userIdAtual = usuarioRepository.userIdAtual.orEmpty()
         }
         mapaResumido = true
+        iniciarTickerTempo()
         recuperacao?.let(handler::removeCallbacks)
         recuperacao = null
         atualizarEstadoCompartilhamento()
@@ -214,8 +231,22 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private fun iniciarTickerTempo() {
+        agoraMs = System.currentTimeMillis()
+        if (tickerTempo?.isActive == true) return
+        // Somente relógio visual: não acessa GPS, Firestore ou rede.
+        tickerTempo = viewModelScope.launch {
+            while (true) {
+                delay(INTERVALO_TICKER_TEMPO_MS)
+                agoraMs = System.currentTimeMillis()
+            }
+        }
+    }
+
     fun pausarLocalizacao() {
         mapaResumido = false
+        tickerTempo?.cancel()
+        tickerTempo = null
         recuperacao?.let(handler::removeCallbacks)
         recuperacao = null
         // Só cancela a busca pontual/feedback da tela. O serviço continua compartilhando.
@@ -370,5 +401,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private companion object {
         const val TAG = "MapaRoleViewModel"
         const val RECUPERACAO_MS = 5_000L
+        const val INTERVALO_TICKER_TEMPO_MS = 15_000L
     }
 }
