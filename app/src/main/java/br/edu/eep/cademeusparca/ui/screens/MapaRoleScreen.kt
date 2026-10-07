@@ -62,7 +62,8 @@ import java.text.DateFormat
 fun MapaRoleScreen(
     roleId: String,
     viewModel: MapaRoleViewModel,
-    onVoltar: () -> Unit
+    onVoltar: () -> Unit,
+    onAbrirParca: (String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -255,7 +256,8 @@ fun MapaRoleScreen(
                                         val detalhes = listOfNotNull(
                                             distancia?.let { "Distância: $it" },
                                             vistoPorUltimo,
-                                            atualizadoEm
+                                            atualizadoEm,
+                                            "Toque para ver detalhes".takeUnless { proprioUsuario }
                                         ).joinToString("\n").ifBlank { null }
                                         MarkerComposable(
                                             titulo,
@@ -267,7 +269,10 @@ fun MapaRoleScreen(
                                                 position = LatLng(participante.latitude, participante.longitude)
                                             ),
                                             title = titulo,
-                                            snippet = detalhes
+                                            snippet = detalhes,
+                                            onInfoWindowClick = {
+                                                if (!proprioUsuario) onAbrirParca(participante.userId)
+                                            }
                                         ) {
                                             ParticipanteMapMarker(
                                                 titulo = titulo,

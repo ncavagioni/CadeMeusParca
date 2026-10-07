@@ -1,9 +1,12 @@
 package br.edu.eep.cademeusparca.navigation
 
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -19,10 +22,12 @@ import br.edu.eep.cademeusparca.ui.screens.ConfirmarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.CriarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.EntrarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.MapaRoleScreen
+import br.edu.eep.cademeusparca.ui.screens.DetalhesParcaScreen
 import br.edu.eep.cademeusparca.ui.screens.MeusRolesScreen
 import br.edu.eep.cademeusparca.ui.screens.RoleCriadoScreen
 import br.edu.eep.cademeusparca.ui.screens.SplashScreen
 import br.edu.eep.cademeusparca.viewmodel.MapaRoleViewModel
+import br.edu.eep.cademeusparca.viewmodel.DetalhesParcaViewModel
 import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.UsuarioViewModel
 
@@ -106,9 +111,57 @@ fun AppNavigation(
             arguments = listOf(navArgument("roleId") { type = NavType.StringType })
         ) { backStackEntry ->
             val mapaViewModel: MapaRoleViewModel = viewModel()
+            val navegacaoInfoWindow = remember(backStackEntry) {
+                val handler = Handler(Looper.getMainLooper())
+                NavegacaoInfoWindow { acao -> handler.post { acao() } }
+            }
             MapaRoleScreen(
                 roleId = backStackEntry.arguments?.getString("roleId").orEmpty(),
                 viewModel = mapaViewModel,
+                onVoltar = { navController.popBackStack() },
+                onAbrirParca = { userId ->
+                    val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
+                    if (userId.isNotBlank() && userId != mapaViewModel.userIdAtual) {
+                        // Retornar ao Maps antes de navigate() provocar MapView.onStop().
+                        navegacaoInfoWindow.solicitar(
+                            podeNavegar = { navController.currentBackStackEntry == backStackEntry },
+                            navegar = {
+                                navController.navigate(
+                                    "detalhes_parca/${Uri.encode(roleId)}/${Uri.encode(userId)}"
+                                ) { launchSingleTop = true }
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
+        composable(
+            route = "detalhes_parca/{roleId}/{userId}",
+            arguments = listOf(
+                navArgument("roleId") { type = NavType.StringType },
+                navArgument("userId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
+            val userId = backStackEntry.arguments?.getString("userId").orEmpty()
+            val detalhesViewModel: DetalhesParcaViewModel = viewModel(
+                viewModelStoreOwner = backStackEntry
+            )
+            val mapaEntry = remember(backStackEntry) {
+                navController.previousBackStackEntry?.takeIf {
+                    it.destination.route == "mapa_role/{roleId}" &&
+                        it.arguments?.getString("roleId") == roleId
+                }
+            }
+            val mapaViewModel: MapaRoleViewModel? = mapaEntry?.let {
+                viewModel(viewModelStoreOwner = it)
+            }
+            DetalhesParcaScreen(
+                roleId = roleId,
+                userId = userId,
+                viewModel = detalhesViewModel,
+                posicaoAndroidInicial = mapaViewModel?.localizacao,
                 onVoltar = { navController.popBackStack() }
             )
         }

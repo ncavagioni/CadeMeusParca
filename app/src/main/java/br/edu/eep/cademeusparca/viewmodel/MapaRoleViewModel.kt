@@ -14,6 +14,7 @@ import androidx.lifecycle.viewModelScope
 import br.edu.eep.cademeusparca.location.DistanciaUtils
 import br.edu.eep.cademeusparca.location.LocationRepository
 import br.edu.eep.cademeusparca.location.LocalizacaoTempoUtils
+import br.edu.eep.cademeusparca.location.RelogioLocalizacao
 import br.edu.eep.cademeusparca.model.LocalizacaoParticipante
 import br.edu.eep.cademeusparca.repository.CompartilhamentoLocalizacaoRepository
 import br.edu.eep.cademeusparca.repository.LocalizacaoRepository
@@ -24,7 +25,6 @@ import br.edu.eep.cademeusparca.repository.UsuarioRepository
 import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MapaRoleViewModel(application: Application) : AndroidViewModel(application) {
@@ -33,9 +33,9 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private val locationRepository = LocationRepository(application)
     private val usuarioRepository = UsuarioRepository()
     private var listenerLocalizacoes: ListenerRegistration? = null
-    private var listenerParcanames: ListenerRegistration? = null
-    private val rolesComNomePublicado = mutableSetOf<String>()
-    private val rolesPublicandoNome = mutableSetOf<String>()
+    private var listenerPerfisPublicos: ListenerRegistration? = null
+    private val rolesComPerfilPublicado = mutableSetOf<String>()
+    private val rolesPublicandoPerfil = mutableSetOf<String>()
     private var roleObservado: String? = null
     private var geracaoObservacao = 0
     private var cancellationSource: CancellationTokenSource? = null
@@ -190,25 +190,25 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         atualizarEstadoCompartilhamento()
         val geracao = geracaoObservacao
 
-        if (listenerParcanames == null) {
-            listenerParcanames = usuarioRepository.observarParcanamesDoRole(roleId) { nomes, erro ->
-                if (geracao != geracaoObservacao) return@observarParcanamesDoRole
+        if (listenerPerfisPublicos == null) {
+            listenerPerfisPublicos = usuarioRepository.observarPerfisPublicosDoRole(roleId) { perfis, erro ->
+                if (geracao != geracaoObservacao) return@observarPerfisPublicosDoRole
                 mensagemPerfis = erro.orEmpty()
                 if (erro == null) {
-                    parcanames = nomes.orEmpty()
+                    parcanames = perfis.orEmpty().associate { it.userId to it.parcaname }
                 } else {
-                    listenerParcanames?.remove()
-                    listenerParcanames = null
+                    listenerPerfisPublicos?.remove()
+                    listenerPerfisPublicos = null
                     agendarRecuperacao()
                 }
             }
         }
-        if (roleId !in rolesComNomePublicado && rolesPublicandoNome.add(roleId)) {
-            usuarioRepository.publicarMeuParcanameNoRole(roleId) { nome, erro ->
-                rolesPublicandoNome.remove(roleId)
-                if (erro == null) rolesComNomePublicado.add(roleId)
-                if (geracao != geracaoObservacao) return@publicarMeuParcanameNoRole
-                meuParcaname = nome.orEmpty()
+        if (roleId !in rolesComPerfilPublicado && rolesPublicandoPerfil.add(roleId)) {
+            usuarioRepository.publicarMeuPerfilPublicoNoRole(roleId) { perfil, erro ->
+                rolesPublicandoPerfil.remove(roleId)
+                if (erro == null) rolesComPerfilPublicado.add(roleId)
+                if (geracao != geracaoObservacao) return@publicarMeuPerfilPublicoNoRole
+                meuParcaname = perfil?.parcaname.orEmpty()
                 if (erro != null) mensagemPerfis = erro
             }
         }
@@ -234,13 +234,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private fun iniciarTickerTempo() {
         agoraMs = System.currentTimeMillis()
         if (tickerTempo?.isActive == true) return
-        // Somente relógio visual: não acessa GPS, Firestore ou rede.
-        tickerTempo = viewModelScope.launch {
-            while (true) {
-                delay(INTERVALO_TICKER_TEMPO_MS)
-                agoraMs = System.currentTimeMillis()
-            }
-        }
+        tickerTempo = RelogioLocalizacao.iniciar(viewModelScope) { agoraMs = it }
     }
 
     fun pausarLocalizacao() {
@@ -260,8 +254,8 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         geracaoObservacao++
         listenerLocalizacoes?.remove()
         listenerLocalizacoes = null
-        listenerParcanames?.remove()
-        listenerParcanames = null
+        listenerPerfisPublicos?.remove()
+        listenerPerfisPublicos = null
         parcanames = emptyMap()
         roleObservado = null
         localizacoesParticipantes = emptyList()
@@ -401,6 +395,5 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private companion object {
         const val TAG = "MapaRoleViewModel"
         const val RECUPERACAO_MS = 5_000L
-        const val INTERVALO_TICKER_TEMPO_MS = 15_000L
     }
 }

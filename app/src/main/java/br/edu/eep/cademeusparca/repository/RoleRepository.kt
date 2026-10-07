@@ -9,6 +9,8 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import java.security.SecureRandom
 
 class RoleRepository {
@@ -16,6 +18,31 @@ class RoleRepository {
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance()
     private val random = SecureRandom()
+
+    fun observarParticipacao(
+        roleId: String,
+        userId: String,
+        onResult: (Boolean, String?) -> Unit
+    ): ListenerRegistration? {
+        val uid = auth.currentUser?.uid
+        if (uid == null || roleId.isBlank() || userId.isBlank() ||
+            '/' in roleId || '/' in userId
+        ) {
+            onResult(false, "Não foi possível verificar a participação neste rolê.")
+            return null
+        }
+        return firestore.collection("roles").document(roleId)
+            .collection("participantes").document(userId)
+            .addSnapshotListener(MetadataChanges.INCLUDE) { documento, erro ->
+                if (auth.currentUser?.uid != uid || erro != null) {
+                    onResult(false, "Não foi possível verificar a participação neste rolê.")
+                } else if (documento != null && !documento.metadata.isFromCache) {
+                    // Autorizar a tela após confirmação do servidor, não apenas por cache antigo.
+                    val pertence = documento.exists() && documento.data?.get("userId") == userId
+                    onResult(pertence, null)
+                }
+            }
+    }
 
     fun criarRole(
         nome: String,
