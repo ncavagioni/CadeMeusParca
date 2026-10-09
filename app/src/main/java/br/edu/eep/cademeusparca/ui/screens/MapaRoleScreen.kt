@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -65,6 +66,7 @@ fun MapaRoleScreen(
     viewModel: MapaRoleViewModel,
     onVoltar: () -> Unit,
     onAbrirParcas: () -> Unit,
+    onAbrirRole: () -> Unit,
     onAbrirParca: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -179,9 +181,6 @@ fun MapaRoleScreen(
                     IconButton(onClick = onVoltar) {
                         Text("←", style = MaterialTheme.typography.titleLarge)
                     }
-                },
-                actions = {
-                    TextButton(onClick = onAbrirParcas) { Text("Parças") }
                 }
             )
         }
@@ -313,6 +312,17 @@ fun MapaRoleScreen(
                     viewModel.mensagemCompartilhamento,
                     style = MaterialTheme.typography.bodySmall
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(onClick = onAbrirParcas, modifier = Modifier.weight(1f)) {
+                        Text("Parças")
+                    }
+                    Button(onClick = onAbrirRole, modifier = Modifier.weight(1f)) {
+                        Text("Rolê")
+                    }
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     !notificacoesPermitidas && localizacaoPrecisa
                 ) {
@@ -415,15 +425,16 @@ fun MapaRoleScreen(
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    OutlinedButton(
+                    // Ação manual temporária de apoio aos testes.
+                    TextButton(
                         onClick = {
                             atualizarPermissao()
                             viewModel.atualizarMinhaPosicao(roleId)
                         },
                         enabled = !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     ) {
-                        Text("Atualizar minha posição")
+                        Text("Atualizar posição")
                     }
                 }
             }

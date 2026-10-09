@@ -23,12 +23,14 @@ import br.edu.eep.cademeusparca.ui.screens.CriarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.EntrarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.MapaRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.DetalhesParcaScreen
+import br.edu.eep.cademeusparca.ui.screens.DetalhesRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.MeusRolesScreen
 import br.edu.eep.cademeusparca.ui.screens.ParcasRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.RoleCriadoScreen
 import br.edu.eep.cademeusparca.ui.screens.SplashScreen
 import br.edu.eep.cademeusparca.viewmodel.MapaRoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.DetalhesParcaViewModel
+import br.edu.eep.cademeusparca.viewmodel.DetalhesRoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.ParcasRoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.UsuarioViewModel
@@ -121,6 +123,14 @@ fun AppNavigation(
                 roleId = backStackEntry.arguments?.getString("roleId").orEmpty(),
                 viewModel = mapaViewModel,
                 onVoltar = { navController.popBackStack() },
+                onAbrirRole = {
+                    val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
+                    if (navController.currentBackStackEntry == backStackEntry) {
+                        navController.navigate("detalhes_role/${Uri.encode(roleId)}") {
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onAbrirParcas = {
                     val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
                     if (navController.currentBackStackEntry == backStackEntry) {
@@ -147,16 +157,38 @@ fun AppNavigation(
         }
 
         composable(
+            route = "detalhes_role/{roleId}",
+            arguments = listOf(navArgument("roleId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
+            val detalhesRoleViewModel: DetalhesRoleViewModel = viewModel(viewModelStoreOwner = backStackEntry)
+            DetalhesRoleScreen(
+                roleId = roleId,
+                viewModel = detalhesRoleViewModel,
+                onVoltar = { navController.popBackStack() },
+                onVerParcas = {
+                    if (navController.currentBackStackEntry == backStackEntry &&
+                        detalhesRoleViewModel.podeVerParcas()
+                    ) {
+                        navController.navigate("parcas_role/${Uri.encode(roleId)}") {
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            )
+        }
+
+        composable(
             route = "parcas_role/{roleId}",
             arguments = listOf(navArgument("roleId") { type = NavType.StringType })
         ) { backStackEntry ->
             val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
             val parcasViewModel: ParcasRoleViewModel = viewModel(viewModelStoreOwner = backStackEntry)
             val mapaEntry = remember(backStackEntry) {
-                navController.previousBackStackEntry?.takeIf {
-                    it.destination.route == "mapa_role/{roleId}" &&
-                        it.arguments?.getString("roleId") == roleId
-                }
+                // Preserva a origem Android também no fluxo Mapa → Rolê → Parças.
+                runCatching {
+                    navController.getBackStackEntry("mapa_role/${Uri.encode(roleId)}")
+                }.getOrNull()
             }
             val mapaViewModel: MapaRoleViewModel? = mapaEntry?.let {
                 viewModel(viewModelStoreOwner = it)
