@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -63,6 +64,7 @@ fun MapaRoleScreen(
     roleId: String,
     viewModel: MapaRoleViewModel,
     onVoltar: () -> Unit,
+    onAbrirParcas: () -> Unit,
     onAbrirParca: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -177,6 +179,9 @@ fun MapaRoleScreen(
                     IconButton(onClick = onVoltar) {
                         Text("←", style = MaterialTheme.typography.titleLarge)
                     }
+                },
+                actions = {
+                    TextButton(onClick = onAbrirParcas) { Text("Parças") }
                 }
             )
         }

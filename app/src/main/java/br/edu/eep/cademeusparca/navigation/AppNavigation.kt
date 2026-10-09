@@ -24,11 +24,13 @@ import br.edu.eep.cademeusparca.ui.screens.EntrarRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.MapaRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.DetalhesParcaScreen
 import br.edu.eep.cademeusparca.ui.screens.MeusRolesScreen
+import br.edu.eep.cademeusparca.ui.screens.ParcasRoleScreen
 import br.edu.eep.cademeusparca.ui.screens.RoleCriadoScreen
 import br.edu.eep.cademeusparca.ui.screens.SplashScreen
 import br.edu.eep.cademeusparca.viewmodel.MapaRoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.DetalhesParcaViewModel
 import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
+import br.edu.eep.cademeusparca.viewmodel.ParcasRoleViewModel
 import br.edu.eep.cademeusparca.viewmodel.UsuarioViewModel
 
 @Composable
@@ -119,6 +121,14 @@ fun AppNavigation(
                 roleId = backStackEntry.arguments?.getString("roleId").orEmpty(),
                 viewModel = mapaViewModel,
                 onVoltar = { navController.popBackStack() },
+                onAbrirParcas = {
+                    val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
+                    if (navController.currentBackStackEntry == backStackEntry) {
+                        navController.navigate("parcas_role/${Uri.encode(roleId)}") {
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onAbrirParca = { userId ->
                     val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
                     if (userId.isNotBlank() && userId != mapaViewModel.userIdAtual) {
@@ -137,6 +147,38 @@ fun AppNavigation(
         }
 
         composable(
+            route = "parcas_role/{roleId}",
+            arguments = listOf(navArgument("roleId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val roleId = backStackEntry.arguments?.getString("roleId").orEmpty()
+            val parcasViewModel: ParcasRoleViewModel = viewModel(viewModelStoreOwner = backStackEntry)
+            val mapaEntry = remember(backStackEntry) {
+                navController.previousBackStackEntry?.takeIf {
+                    it.destination.route == "mapa_role/{roleId}" &&
+                        it.arguments?.getString("roleId") == roleId
+                }
+            }
+            val mapaViewModel: MapaRoleViewModel? = mapaEntry?.let {
+                viewModel(viewModelStoreOwner = it)
+            }
+            ParcasRoleScreen(
+                roleId = roleId,
+                viewModel = parcasViewModel,
+                posicaoAndroidInicial = mapaViewModel?.localizacao,
+                onVoltar = { navController.popBackStack() },
+                onAbrirParca = { userId ->
+                    if (navController.currentBackStackEntry == backStackEntry &&
+                        parcasViewModel.podeAbrirParca(userId)
+                    ) {
+                        navController.navigate(
+                            "detalhes_parca/${Uri.encode(roleId)}/${Uri.encode(userId)}"
+                        ) { launchSingleTop = true }
+                    }
+                }
+            )
+        }
+
+        composable(
             route = "detalhes_parca/{roleId}/{userId}",
             arguments = listOf(
                 navArgument("roleId") { type = NavType.StringType },
@@ -149,10 +191,10 @@ fun AppNavigation(
                 viewModelStoreOwner = backStackEntry
             )
             val mapaEntry = remember(backStackEntry) {
-                navController.previousBackStackEntry?.takeIf {
-                    it.destination.route == "mapa_role/{roleId}" &&
-                        it.arguments?.getString("roleId") == roleId
-                }
+                // O mapa também está na pilha quando os detalhes vêm da lista de parças.
+                runCatching {
+                    navController.getBackStackEntry("mapa_role/${Uri.encode(roleId)}")
+                }.getOrNull()
             }
             val mapaViewModel: MapaRoleViewModel? = mapaEntry?.let {
                 viewModel(viewModelStoreOwner = it)

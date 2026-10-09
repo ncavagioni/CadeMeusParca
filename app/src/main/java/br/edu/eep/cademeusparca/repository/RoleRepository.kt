@@ -19,6 +19,32 @@ class RoleRepository {
     private val firestore = FirebaseFirestore.getInstance()
     private val random = SecureRandom()
 
+    fun observarParticipantesDoRole(
+        roleId: String,
+        onResult: (List<ParticipanteRole>?, String?) -> Unit
+    ): ListenerRegistration? {
+        val uid = auth.currentUser?.uid
+        if (uid == null || roleId.isBlank() || '/' in roleId || roleId == "." || roleId == "..") {
+            onResult(null, "Não foi possível identificar os participantes deste rolê.")
+            return null
+        }
+        return firestore.collection("roles").document(roleId)
+            .collection("participantes")
+            .addSnapshotListener { snapshot, erro ->
+                if (auth.currentUser?.uid != uid || erro != null) {
+                    if (erro != null) Log.w("RoleRepository", "Erro ao observar participantes", erro)
+                    onResult(null, "Não foi possível carregar os parças. Verifique sua participação e conexão.")
+                } else if (snapshot != null) {
+                    val participantes = snapshot.documents.mapNotNull { documento ->
+                        val userId = documento.get("userId") as? String
+                        if (userId.isNullOrBlank() || userId != documento.id) null
+                        else ParticipanteRole(userId, documento.get("papel") as? String ?: "")
+                    }
+                    onResult(participantes, null)
+                }
+            }
+    }
+
     fun observarParticipacao(
         roleId: String,
         userId: String,
