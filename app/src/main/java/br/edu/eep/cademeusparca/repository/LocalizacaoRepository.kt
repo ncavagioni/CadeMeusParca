@@ -16,9 +16,11 @@ class LocalizacaoRepository {
 
     fun observarLocalizacoesDoRole(
         roleId: String,
+        aoPerderAcesso: () -> Unit = {},
         onResult: (List<LocalizacaoParticipante>?, String?) -> Unit
     ): ListenerRegistration? {
-        if (auth.currentUser == null) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
             onResult(null, "Usuário não autenticado. Abra o aplicativo novamente.")
             return null
         }
@@ -32,6 +34,11 @@ class LocalizacaoRepository {
             .collection("localizacoes")
             .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, erro ->
                 if (!ativo) return@addSnapshotListener
+                if (auth.currentUser?.uid != uid || erro?.code?.name?.let(::erroImpedeAcessoAoRole) == true) {
+                    aoPerderAcesso()
+                    onResult(null, "Você não tem mais acesso a este rolê.")
+                    return@addSnapshotListener
+                }
                 if (erro != null) {
                     Log.w(
                         TAG,
@@ -160,3 +167,7 @@ class LocalizacaoRepository {
         const val TAG = "LocalizacaoRepository"
     }
 }
+
+/** Falhas transitórias de rede não devem ser confundidas com revogação de acesso. */
+internal fun erroImpedeAcessoAoRole(codigo: String): Boolean =
+    codigo == "PERMISSION_DENIED" || codigo == "UNAUTHENTICATED"

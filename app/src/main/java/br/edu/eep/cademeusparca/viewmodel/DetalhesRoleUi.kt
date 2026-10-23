@@ -2,6 +2,7 @@ package br.edu.eep.cademeusparca.viewmodel
 
 import br.edu.eep.cademeusparca.model.PerfilPublicoRole
 import br.edu.eep.cademeusparca.model.Role
+import br.edu.eep.cademeusparca.model.podeEditarDadosRole
 import java.util.Locale
 
 data class DetalhesRoleUi(
@@ -11,7 +12,9 @@ data class DetalhesRoleUi(
     val nomeLocal: String?,
     val endereco: String?,
     val administrador: String,
-    val participantes: String
+    val participantes: String,
+    val eAdmin: Boolean = false,
+    val podeEditar: Boolean = false
 )
 
 fun parametrosDetalhesRoleValidos(roleId: String, uid: String?): Boolean =
@@ -46,6 +49,8 @@ fun comporDetalhesRole(
         endereco = textoOpcionalRole(role.endereco),
         administrador = if (admin == null) "Nome indisponível"
             else admin + if (role.adminId == userIdAtual) " (Você)" else "",
-        participantes = formatarQuantidadeParcas(quantidadeParticipantes)
+        participantes = formatarQuantidadeParcas(quantidadeParticipantes),
+        eAdmin = (role.adminId == userIdAtual),
+        podeEditar = podeEditarDadosRole(userIdAtual, role.adminId, role.status)
     )
 }

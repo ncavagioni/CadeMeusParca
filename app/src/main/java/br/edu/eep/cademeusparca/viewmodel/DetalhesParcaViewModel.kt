@@ -20,6 +20,7 @@ import br.edu.eep.cademeusparca.repository.LocalizacaoRepository
 import br.edu.eep.cademeusparca.repository.RoleRepository
 import br.edu.eep.cademeusparca.repository.UsuarioRepository
 import br.edu.eep.cademeusparca.util.TelefoneUtils
+import br.edu.eep.cademeusparca.util.PrazoCarregamento
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -32,6 +33,7 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
     private val locationRepository = LocationRepository(application)
     private val acoesExternas = AcoesExternasRepository()
     private val listeners = mutableListOf<ListenerRegistration>()
+    private val prazoInicial = PrazoCarregamento.criar(viewModelScope)
     private var ticker: Job? = null
     private var observacaoAndroid: Job? = null
     private var geracao = 0
@@ -67,6 +69,13 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
             )
         }
 
+    private var eAdmin by mutableStateOf(false)
+    var removendoParca by mutableStateOf(false)
+        private set
+
+    val podeRemover: Boolean
+        get() = acessoValido() && eAdmin && parcaObservado != uidObservado
+
     val podeLigar: Boolean
         get() = acessoValido() && TelefoneUtils.uriDiscador(perfil?.telefone.orEmpty()) != null
     val podeWhatsApp: Boolean
@@ -81,6 +90,7 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
         perfil = null
         localizacoes = emptyList()
         propriaAndroid = posicaoInicial?.let(::Location)
+        eAdmin = false
         mensagem = ""
         mensagemAcao = ""
         carregando = true
@@ -93,11 +103,22 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
         uidObservado = uid
         parcaObservado = userId
         val versao = geracao
+        prazoInicial.iniciar {
+            if (aceita(versao) && carregando) {
+                falhar("Não foi possível confirmar os dados a tempo. Verifique sua internet e tente novamente.")
+            }
+        }
         val inicioMs = SystemClock.elapsedRealtime()
         Log.d("DetalhesParcaVM", "TELA09_LOAD_START geracao=$versao elapsedMs=0")
         registrar(usuarioRepository.observarAutenticacao {
             if (geracao == versao && it != uid) falhar()
         }, versao)
+
+        roleRepository.buscarRolePorId(roleId) { role, _ ->
+            if (aceita(versao)) {
+                eAdmin = (role?.adminId == uid)
+            }
+        }
 
         val autorizacao = AutorizacaoDetalhesParca(
             aoAutorizar = {
@@ -143,6 +164,7 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
             } else {
                 perfil = novoPerfil
                 carregando = false
+                prazoInicial.cancelar()
                 if (!dadosProntosRegistrados) {
                     dadosProntosRegistrados = true
                     Log.d(
@@ -170,16 +192,17 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
         observando && uidObservado == usuarioRepository.userIdAtual &&
             perfil != null && !carregando && mensagem.isBlank()
 
-    private fun falhar() {
+    private fun falhar(erro: String = "Não foi possível carregar os dados deste parça.") {
         pararObservacao()
         perfil = null
         localizacoes = emptyList()
         propriaAndroid = null
         carregando = false
-        mensagem = "Não foi possível carregar os dados deste parça."
+        mensagem = erro
     }
 
     fun pararObservacao() {
+        prazoInicial.cancelar()
         observando = false
         geracao++
         listeners.forEach { it.remove() }
@@ -202,6 +225,24 @@ class DetalhesParcaViewModel(application: Application) : AndroidViewModel(applic
         if (!acessoValido()) return
         val destino = localizacao.destino ?: return
         mensagemAcao = acoesExternas.tracarRota(context, destino.latitude, destino.longitude).orEmpty()
+    }
+
+    fun removerDoRole(onConcluido: () -> Unit) {
+        val roleId = roleObservado ?: return
+        val targetUserId = parcaObservado ?: return
+        if (removendoParca || !podeRemover) return
+        removendoParca = true
+
+        roleRepository.removerParticipante(roleId, targetUserId) { sucesso, erro ->
+            removendoParca = false
+            if (sucesso) {
+                mensagemAcao = "Parça removido do rolê."
+                pararObservacao()
+                onConcluido()
+            } else {
+                mensagemAcao = erro ?: "Não foi possível remover o parça do rolê."
+            }
+        }
     }
 
     fun consumirMensagemAcao() {

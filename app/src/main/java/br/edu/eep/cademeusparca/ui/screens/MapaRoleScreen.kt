@@ -12,6 +12,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +29,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -36,9 +40,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.booleanResource
 import androidx.compose.ui.unit.dp
@@ -48,13 +55,16 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import br.edu.eep.cademeusparca.R
+import br.edu.eep.cademeusparca.location.CameraMapaUtils
 import br.edu.eep.cademeusparca.ui.components.ParticipanteMapMarker
 import br.edu.eep.cademeusparca.viewmodel.MapaRoleViewModel
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.MarkerComposable
+import kotlinx.coroutines.launch
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
 import java.text.DateFormat
@@ -126,14 +136,11 @@ fun MapaRoleScreen(
         ) iniciarCompartilhamentoVisivel()
     }
 
-    LaunchedEffect(roleId) {
-        viewModel.carregarRole(roleId)
-    }
-
     DisposableEffect(lifecycleOwner, viewModel, roleId) {
         val observer = LifecycleEventObserver { _, evento ->
             when (evento) {
                 Lifecycle.Event.ON_RESUME -> {
+                    viewModel.carregarRole(roleId)
                     atualizarPermissao()
                     viewModel.verificarLocalizacaoAoAbrir()
                     viewModel.iniciarObservacao(roleId)
@@ -146,6 +153,7 @@ fun MapaRoleScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            viewModel.carregarRole(roleId)
             atualizarPermissao()
             viewModel.verificarLocalizacaoAoAbrir()
             viewModel.iniciarObservacao(roleId)
@@ -158,17 +166,16 @@ fun MapaRoleScreen(
         }
     }
 
-    val posicaoAndroid = viewModel.localizacao?.let {
-        posicaoUtilParaCamera(it.latitude, it.longitude)
-    }
-    val propriaSalva = viewModel.localizacoesParticipantes.firstOrNull {
-        viewModel.userIdAtual.isNotBlank() && it.userId == viewModel.userIdAtual
-    }
-    val posicaoPreferida = posicaoAndroid ?: propriaSalva?.let {
-        posicaoUtilParaCamera(it.latitude, it.longitude)
-    }
-    LaunchedEffect(roleId, posicaoPreferida) {
-        if (posicaoInicialCamera == null && posicaoPreferida != null) {
+    val posicaoPreferida = CameraMapaUtils.posicaoInicial(
+        propriaAndroid = viewModel.localizacao?.let { it.latitude to it.longitude },
+        userIdAtual = viewModel.userIdAtual,
+        localizacoes = viewModel.localizacoesParticipantes,
+        buscandoPosicaoPropria = viewModel.carregandoLocalizacao
+    )?.let { LatLng(it.first, it.second) }
+    LaunchedEffect(roleId, posicaoPreferida, viewModel.acessoNegado) {
+        if (viewModel.acessoNegado) {
+            posicaoInicialCamera = null
+        } else if (posicaoInicialCamera == null && posicaoPreferida != null) {
             posicaoInicialCamera = posicaoPreferida
         }
     }
@@ -219,20 +226,45 @@ fun MapaRoleScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentAlignment = Alignment.Center
             ) {
-                if (chaveConfigurada) {
-                    val posicaoInicial = posicaoInicialCamera
+                if (chaveConfigurada && !viewModel.acessoNegado) {
+                    val evento = viewModel.marcadorEvento
+                    val posicaoEvento = evento?.ponto?.let { LatLng(it.latitude, it.longitude) }
+                    // Mantém a prioridade da câmera dos parças. O evento é só fallback sem posições.
+                    val posicaoInicial = posicaoInicialCamera ?: posicaoPreferida ?:
+                        posicaoEvento?.takeUnless {
+                            viewModel.carregandoLocalizacao || viewModel.carregandoParticipantes
+                        }
                     if (posicaoInicial == null) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            CircularProgressIndicator()
-                            Text("Obtendo sua posição...")
+                            if (viewModel.carregandoLocalizacao || viewModel.carregandoParticipantes) {
+                                CircularProgressIndicator()
+                                Text("Obtendo posições para o mapa...")
+                            } else {
+                                Text("Ainda não há uma posição disponível para exibir o mapa.")
+                            }
                         }
                     } else {
                         key(roleId) {
                             val cameraPositionState = rememberCameraPositionState {
                                 position = CameraPosition.fromLatLngZoom(posicaoInicial, 16f)
+                            }
+                            val scope = rememberCoroutineScope()
+                            val estadoEvento = rememberUpdatedMarkerState(
+                                position = posicaoEvento ?: posicaoInicial
+                            )
+                            var iniciouPeloEvento by remember {
+                                mutableStateOf(posicaoInicialCamera == null && posicaoPreferida == null)
+                            }
+                            LaunchedEffect(posicaoInicialCamera) {
+                                val posicaoParcas = posicaoInicialCamera
+                                if (iniciouPeloEvento && posicaoParcas != null) {
+                                    cameraPositionState.position =
+                                        CameraPosition.fromLatLngZoom(posicaoParcas, 16f)
+                                    iniciouPeloEvento = false
+                                }
                             }
                             GoogleMap(
                                 modifier = Modifier.fillMaxSize(),
@@ -242,6 +274,23 @@ fun MapaRoleScreen(
                                     myLocationButtonEnabled = false
                                 )
                             ) {
+                                if (evento != null) {
+                                    MarkerComposable(
+                                        state = estadoEvento,
+                                        anchor = Offset(0.5f, 0.5f),
+                                        title = evento.titulo,
+                                        snippet = "Local do rolê",
+                                        // Os parças mantêm zIndex = 0; ficam à frente também na mesma posição.
+                                        zIndex = -1f
+                                    ) {
+                                        Surface(
+                                            modifier = Modifier.size(20.dp),
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            border = BorderStroke(2.dp, Color.White)
+                                        ) {}
+                                    }
+                                }
                                 viewModel.localizacoesNoMapa.forEach { participante ->
                                     key(participante.userId) {
                                         val titulo = viewModel.tituloMarcador(participante.userId)
@@ -275,7 +324,7 @@ fun MapaRoleScreen(
                                             title = titulo,
                                             snippet = detalhes,
                                             onInfoWindowClick = {
-                                                if (!proprioUsuario) onAbrirParca(participante.userId)
+                                                if (!proprioUsuario && !viewModel.acessoNegado) onAbrirParca(participante.userId)
                                             }
                                         ) {
                                             ParticipanteMapMarker(
@@ -289,11 +338,25 @@ fun MapaRoleScreen(
                                     }
                                 }
                             }
+                            if (posicaoEvento != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        scope.launch {
+                                            cameraPositionState.animate(
+                                                CameraUpdateFactory.newLatLngZoom(posicaoEvento, 16f)
+                                            )
+                                            estadoEvento.showInfoWindow()
+                                        }
+                                    },
+                                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp)
+                                ) { Text("Ver local do evento") }
+                            }
                         }
                     }
                 } else {
                     Text(
-                        text = "Mapa indisponível: configuração pendente.",
+                        text = if (viewModel.acessoNegado) "Acesso ao rolê indisponível."
+                            else "Mapa indisponível: configuração pendente.",
                         modifier = Modifier.padding(24.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -316,10 +379,10 @@ fun MapaRoleScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Button(onClick = onAbrirParcas, modifier = Modifier.weight(1f)) {
+                    Button(onClick = onAbrirParcas, enabled = !viewModel.acessoNegado, modifier = Modifier.weight(1f)) {
                         Text("Parças")
                     }
-                    Button(onClick = onAbrirRole, modifier = Modifier.weight(1f)) {
+                    Button(onClick = onAbrirRole, enabled = !viewModel.acessoNegado, modifier = Modifier.weight(1f)) {
                         Text("Rolê")
                     }
                 }
@@ -411,7 +474,7 @@ fun MapaRoleScreen(
                                     )
                                 )
                             },
-                            enabled = !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
+                            enabled = !viewModel.acessoNegado && !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Habilitar localização precisa")
@@ -431,7 +494,7 @@ fun MapaRoleScreen(
                             atualizarPermissao()
                             viewModel.atualizarMinhaPosicao(roleId)
                         },
-                        enabled = !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
+                        enabled = !viewModel.acessoNegado && !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
                         modifier = Modifier.align(Alignment.CenterHorizontally)
                     ) {
                         Text("Atualizar posição")
@@ -440,15 +503,6 @@ fun MapaRoleScreen(
             }
         }
     }
-}
-
-// (0,0) não é usado como centro inicial útil; os dados de localização não são alterados.
-private fun posicaoUtilParaCamera(latitude: Double, longitude: Double): LatLng? {
-    if (!latitude.isFinite() || !longitude.isFinite() ||
-        latitude !in -90.0..90.0 || longitude !in -180.0..180.0 ||
-        (latitude == 0.0 && longitude == 0.0)
-    ) return null
-    return LatLng(latitude, longitude)
 }
 
 private fun temPermissaoNotificacoes(context: Context): Boolean =

@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Aliases vetoriais para launchers anteriores aos Adaptive Icons.
-         anydpi tem prioridade sobre os antigos mipmaps raster por densidade. -->
-    <item name="ic_launcher" type="mipmap">@drawable/ic_launcher</item>
-    <item name="ic_launcher_round" type="mipmap">@drawable/ic_launcher_round</item>
+    <!-- minSdk 26: os ícones adaptativos são definidos em mipmap-anydpi-v26
+         e mipmap-anydpi-v33. Não são necessários aliases para Android anterior. -->
 </resources>

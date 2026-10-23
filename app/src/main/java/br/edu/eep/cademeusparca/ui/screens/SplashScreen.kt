@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,7 +16,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SplashScreen() {
+fun SplashScreen(
+    mensagem: String = "",
+    carregando: Boolean = true,
+    onTentarNovamente: () -> Unit = {}
+) {
 
     Box(
         modifier = Modifier
@@ -44,6 +49,21 @@ fun SplashScreen() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+            if (mensagem.isNotBlank()) {
+                Text(
+                    text = mensagem,
+                    modifier = Modifier.padding(top = 24.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+                OutlinedButton(
+                    onClick = onTentarNovamente,
+                    enabled = !carregando,
+                    modifier = Modifier.padding(top = 12.dp)
+                ) {
+                    Text("Tentar novamente")
+                }
+            }
         }
     }
 }

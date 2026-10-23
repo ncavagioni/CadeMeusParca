@@ -3,6 +3,9 @@ package br.edu.eep.cademeusparca.repository
 import android.util.Log
 import br.edu.eep.cademeusparca.model.ParticipanteRole
 import br.edu.eep.cademeusparca.model.Role
+import br.edu.eep.cademeusparca.model.PontoLocal
+import br.edu.eep.cademeusparca.model.EdicaoRole
+import br.edu.eep.cademeusparca.model.erroAutorizacaoEdicaoRole
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
@@ -13,11 +16,63 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import java.security.SecureRandom
 
-class RoleRepository {
+class RoleRepository : EdicaoRoleRepository {
 
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance()
     private val random = SecureRandom()
+    override val userIdAtual: String? get() = auth.currentUser?.uid
+
+    override fun atualizarDadosRole(
+        roleId: String,
+        edicao: EdicaoRole,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val uid = userIdAtual
+        if (uid.isNullOrBlank()) {
+            onResult(false, "Sua autenticação não está disponível. Reabra o aplicativo.")
+            return
+        }
+        if (roleId.isBlank() || '/' in roleId || roleId == "." || roleId == "..") {
+            onResult(false, "Rolê não encontrado.")
+            return
+        }
+        edicao.erroValidacao()?.let {
+            onResult(false, it)
+            return
+        }
+        val campos = edicao.paraAtualizacao()
+        val referencia = firestore.collection("roles").document(roleId)
+        // A leitura é refeita pelo Firestore em caso de conflito, inclusive encerramento concorrente.
+        firestore.runTransaction { transacao ->
+            if (userIdAtual != uid) throw EdicaoRoleRecusada("Sua autenticação mudou. Reabra o rolê.")
+            val atual = transacao.get(referencia)
+            if (!atual.exists()) throw EdicaoRoleRecusada("Rolê não encontrado.")
+            erroAutorizacaoEdicaoRole(uid, atual.getString("adminId"), atual.getString("status"))?.let {
+                throw EdicaoRoleRecusada(it)
+            }
+            transacao.update(referencia, campos)
+        }.addOnSuccessListener {
+            if (userIdAtual == uid) onResult(true, null)
+            else onResult(false, "Sua autenticação mudou. Reabra o rolê.")
+        }.addOnFailureListener { erro ->
+            Log.w("RoleRepository", "Erro ao editar dados do rolê", erro)
+            val recusada = (erro as? EdicaoRoleRecusada) ?: (erro.cause as? EdicaoRoleRecusada)
+            val mensagem = recusada?.message ?: when ((erro as? FirebaseFirestoreException)?.code) {
+                FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                    "Sem permissão para salvar este rolê. Verifique sua administração e as regras do Firestore."
+                FirebaseFirestoreException.Code.UNAUTHENTICATED ->
+                    "Sua autenticação não está disponível. Reabra o aplicativo."
+                FirebaseFirestoreException.Code.UNAVAILABLE,
+                FirebaseFirestoreException.Code.DEADLINE_EXCEEDED ->
+                    "Não foi possível salvar. Verifique sua internet e tente novamente."
+                else -> "Não foi possível salvar as alterações. Tente novamente."
+            }
+            onResult(false, mensagem)
+        }
+    }
+
+    private class EdicaoRoleRecusada(mensagem: String) : Exception(mensagem)
 
     fun observarParticipantesDoRole(
         roleId: String,
@@ -74,10 +129,16 @@ class RoleRepository {
         nome: String,
         nomeLocal: String,
         endereco: String,
+        latitudeLocal: Double? = null,
+        longitudeLocal: Double? = null,
         onResult: (Role?, String?) -> Unit
     ) {
         if (nome.isBlank()) {
             onResult(null, "Informe o nome do rolê.")
+            return
+        }
+        if (!PontoLocal.coordenadasOpcionaisValidas(latitudeLocal, longitudeLocal)) {
+            onResult(null, "Selecione um ponto válido no mapa ou limpe a seleção.")
             return
         }
 
@@ -97,6 +158,8 @@ class RoleRepository {
                     nome = nome.trim(),
                     nomeLocal = nomeLocal.trim(),
                     endereco = endereco.trim(),
+                    latitudeLocal = latitudeLocal,
+                    longitudeLocal = longitudeLocal,
                     codigo = codigo,
                     adminId = uid
                 )
@@ -172,7 +235,7 @@ class RoleRepository {
         onResult(null, mensagem)
     }
 
-    fun buscarRolePorId(roleId: String, onResult: (Role?, String?) -> Unit) {
+    override fun buscarRolePorId(roleId: String, onResult: (Role?, String?) -> Unit) {
         if (auth.currentUser == null) {
             onResult(null, "Usuário não autenticado.")
             return
@@ -284,6 +347,167 @@ class RoleRepository {
                 }
             }
             .addOnFailureListener { onResult(false, mensagemErroEntrada(it)) }
+    }
+
+    fun sairDoRole(roleId: String, onResult: (Boolean, String?) -> Unit) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(false, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+        if (roleId.isBlank() || roleId.contains('/')) {
+            onResult(false, "Rolê não encontrado.")
+            return
+        }
+
+        val roleRef = firestore.collection("roles").document(roleId)
+        roleRef.get(Source.SERVER).addOnSuccessListener { doc ->
+            val adminId = doc.getString("adminId")
+            if (adminId == uid) {
+                onResult(false, "O administrador não pode sair do rolê. Para finalizar, encerre o rolê.")
+                return@addOnSuccessListener
+            }
+            val batch = firestore.batch()
+            batch.delete(roleRef.collection("participantes").document(uid))
+            batch.delete(roleRef.collection("perfisPublicos").document(uid))
+            batch.delete(roleRef.collection("localizacoes").document(uid))
+            batch.commit()
+                .addOnSuccessListener { onResult(true, null) }
+                .addOnFailureListener { erro ->
+                    Log.w("RoleRepository", "Erro ao sair do rolê", erro)
+                    onResult(false, "Não foi possível sair do rolê. Tente novamente.")
+                }
+        }.addOnFailureListener { erro ->
+            Log.w("RoleRepository", "Erro ao verificar o rolê para saída", erro)
+            onResult(false, "Não foi possível acessar as informações do rolê. Tente novamente.")
+        }
+    }
+
+    fun removerParticipante(
+        roleId: String,
+        targetUserId: String,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(false, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+        if (roleId.isBlank() || roleId.contains('/') || targetUserId.isBlank() || targetUserId.contains('/')) {
+            onResult(false, "Parâmetros inválidos para remoção.")
+            return
+        }
+
+        val roleRef = firestore.collection("roles").document(roleId)
+        roleRef.get(Source.SERVER).addOnSuccessListener { doc ->
+            val adminId = doc.getString("adminId")
+            if (adminId != uid) {
+                onResult(false, "Apenas o administrador pode remover participantes.")
+                return@addOnSuccessListener
+            }
+            if (targetUserId == uid) {
+                onResult(false, "O administrador não pode remover a si mesmo.")
+                return@addOnSuccessListener
+            }
+
+            val batch = firestore.batch()
+            batch.delete(roleRef.collection("participantes").document(targetUserId))
+            batch.delete(roleRef.collection("perfisPublicos").document(targetUserId))
+            batch.delete(roleRef.collection("localizacoes").document(targetUserId))
+            batch.commit()
+                .addOnSuccessListener { onResult(true, null) }
+                .addOnFailureListener { erro ->
+                    Log.w("RoleRepository", "Erro ao remover participante", erro)
+                    onResult(false, "Não foi possível remover o participante. Tente novamente.")
+                }
+        }.addOnFailureListener { erro ->
+            Log.w("RoleRepository", "Erro ao verificar permissão do administrador", erro)
+            onResult(false, "Não foi possível verificar as permissões. Tente novamente.")
+        }
+    }
+
+    fun encerrarRole(roleId: String, onResult: (Boolean, String?) -> Unit) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(false, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+        if (roleId.isBlank() || roleId.contains('/')) {
+            onResult(false, "Rolê não encontrado.")
+            return
+        }
+
+        val roleRef = firestore.collection("roles").document(roleId)
+        roleRef.get(Source.SERVER).addOnSuccessListener { doc ->
+            val adminId = doc.getString("adminId")
+            if (adminId != uid) {
+                onResult(false, "Apenas o administrador pode encerrar o rolê.")
+                return@addOnSuccessListener
+            }
+            roleRef.update("status", "encerrado")
+                .addOnSuccessListener { onResult(true, null) }
+                .addOnFailureListener { erro ->
+                    Log.w("RoleRepository", "Erro ao encerrar o rolê", erro)
+                    onResult(false, "Não foi possível encerrar o rolê. Tente novamente.")
+                }
+        }.addOnFailureListener { erro ->
+            Log.w("RoleRepository", "Erro ao verificar o rolê para encerramento", erro)
+            onResult(false, "Não foi possível acessar as informações do rolê.")
+        }
+    }
+
+    fun excluirRoleEncerrado(roleId: String, onResult: (Boolean, String?) -> Unit) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            onResult(false, "Usuário não autenticado. Abra o aplicativo novamente.")
+            return
+        }
+        if (roleId.isBlank() || roleId.contains('/')) {
+            onResult(false, "Rolê não encontrado.")
+            return
+        }
+
+        val roleRef = firestore.collection("roles").document(roleId)
+        roleRef.get(Source.SERVER).addOnSuccessListener { doc ->
+            val adminId = doc.getString("adminId")
+            val status = doc.getString("status")
+            if (adminId != uid) {
+                onResult(false, "Apenas o administrador pode excluir o rolê.")
+                return@addOnSuccessListener
+            }
+            if (status != "encerrado") {
+                onResult(false, "Encerrar o rolê antes de excluir.")
+                return@addOnSuccessListener
+            }
+
+            val p1 = roleRef.collection("participantes").get(Source.SERVER)
+            val p2 = roleRef.collection("perfisPublicos").get(Source.SERVER)
+            val p3 = roleRef.collection("localizacoes").get(Source.SERVER)
+
+            Tasks.whenAllSuccess<com.google.firebase.firestore.QuerySnapshot>(p1, p2, p3)
+                .addOnSuccessListener { resultados ->
+                    val batch = firestore.batch()
+                    resultados.forEach { snapshot ->
+                        snapshot.documents.forEach { subDoc ->
+                            batch.delete(subDoc.reference)
+                        }
+                    }
+                    batch.delete(roleRef)
+                    batch.commit()
+                        .addOnSuccessListener { onResult(true, null) }
+                        .addOnFailureListener { erro ->
+                            Log.w("RoleRepository", "Erro ao excluir rolê e subcoleções", erro)
+                            onResult(false, "Não foi possível excluir o rolê. Tente novamente.")
+                        }
+                }
+                .addOnFailureListener { erro ->
+                    Log.w("RoleRepository", "Erro ao buscar subcoleções para exclusão", erro)
+                    onResult(false, "Não foi possível acessar os dados do rolê para exclusão.")
+                }
+        }.addOnFailureListener { erro ->
+            Log.w("RoleRepository", "Erro ao verificar o rolê para exclusão", erro)
+            onResult(false, "Não foi possível acessar as informações do rolê.")
+        }
     }
 
     private fun mensagemErroEntrada(erro: Exception): String {

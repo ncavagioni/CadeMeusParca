@@ -9,13 +9,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import br.edu.eep.cademeusparca.repository.AcoesExternasRepository
 
 @Composable
 fun RoleCriadoScreen(
@@ -23,6 +27,9 @@ fun RoleCriadoScreen(
     codigo: String,
     onVoltar: () -> Unit
 ) {
+    val context = LocalContext.current
+    val acoesExternas = remember { AcoesExternasRepository() }
+
     Scaffold { paddingValues ->
         Column(
             modifier = Modifier
@@ -54,7 +61,13 @@ fun RoleCriadoScreen(
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
             )
-            Button(onClick = onVoltar, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { acoesExternas.compartilharCodigo(context, nome, codigo) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Compartilhar código")
+            }
+            OutlinedButton(onClick = onVoltar, modifier = Modifier.fillMaxWidth()) {
                 Text("Voltar para Meus rolês")
             }
         }

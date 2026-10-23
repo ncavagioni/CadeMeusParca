@@ -148,4 +148,14 @@ class DetalhesRoleUiTest {
         assertEquals("5 parças", formatarQuantidadeParcas(5))
         assertEquals("Quantidade indisponível", formatarQuantidadeParcas(-1))
     }
+
+    @Test
+    fun eAdminRetornaTrueParaOAdministrador() {
+        assertTrue(dados(uid = "admin").eAdmin)
+    }
+
+    @Test
+    fun eAdminRetornaFalseParaParticipanteComum() {
+        assertFalse(dados(uid = "parca").eAdmin)
+    }
 }

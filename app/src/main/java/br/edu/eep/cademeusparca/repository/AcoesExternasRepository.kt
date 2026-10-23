@@ -34,6 +34,22 @@ class AcoesExternasRepository {
         }
     }
 
+    fun formatarMensagemCompartilhamento(nomeRole: String, codigo: String): String {
+        val nomeTratado = nomeRole.trim().ifBlank { "Rolê" }
+        return "Entra aí no meu rolê \"$nomeTratado\" no app Cadê meus parça! Use o código: $codigo"
+    }
+
+    fun compartilharCodigo(context: Context, nomeRole: String, codigo: String): String? {
+        if (codigo.isBlank()) return "Código indisponível para compartilhamento."
+        val mensagem = formatarMensagemCompartilhamento(nomeRole, codigo)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, mensagem)
+        }
+        val chooser = Intent.createChooser(intent, "Compartilhar código do rolê")
+        return abrir(context, chooser, "compartilhamento")
+    }
+
     private fun abrir(context: Context, intent: Intent, aplicativo: String): String? {
         // Tentar abrir diretamente evita depender da visibilidade de pacotes do Android.
         return try {

@@ -3,6 +3,7 @@ package br.edu.eep.cademeusparca.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +28,7 @@ import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
 @Composable
 fun MeusRolesScreen(
     viewModel: RoleViewModel,
+    onPerfilClick: () -> Unit = {},
     onCriarRoleClick: () -> Unit,
     onEntrarRoleClick: () -> Unit,
     onRoleClick: (String) -> Unit
@@ -40,11 +42,20 @@ fun MeusRolesScreen(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
-                Text(
-                    text = "Meus rolês",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Meus rolês",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    OutlinedButton(onClick = onPerfilClick) {
+                        Text("Meu perfil")
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Os rolês dos quais você participa aparecerão nesta tela.",

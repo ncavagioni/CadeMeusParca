@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +36,7 @@ import br.edu.eep.cademeusparca.viewmodel.RoleViewModel
 fun CriarRoleScreen(
     viewModel: RoleViewModel,
     onVoltar: () -> Unit,
+    onSelecionarLocal: () -> Unit,
     onRoleCriado: (String, String) -> Unit
 ) {
     val roleCriado = viewModel.roleCriado
@@ -94,6 +96,27 @@ fun CriarRoleScreen(
                 enabled = !viewModel.carregando,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
             )
+            OutlinedButton(
+                onClick = onSelecionarLocal,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !viewModel.carregando
+            ) {
+                Text(
+                    if (viewModel.formulario.pontoSelecionado == null) "Selecionar no mapa"
+                    else "Alterar seleção no mapa"
+                )
+            }
+            viewModel.formulario.pontoSelecionado?.let { ponto ->
+                Text(
+                    "Ponto selecionado no mapa: ${ponto.latitude}, ${ponto.longitude}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                TextButton(
+                    onClick = viewModel::limparLocal,
+                    enabled = !viewModel.carregando
+                ) { Text("Limpar seleção") }
+            }
             Spacer(modifier = Modifier.height(4.dp))
 
             if (viewModel.mensagem.isNotBlank()) {

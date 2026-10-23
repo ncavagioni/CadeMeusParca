@@ -16,6 +16,8 @@ import br.edu.eep.cademeusparca.location.LocationRepository
 import br.edu.eep.cademeusparca.location.LocalizacaoTempoUtils
 import br.edu.eep.cademeusparca.location.RelogioLocalizacao
 import br.edu.eep.cademeusparca.model.LocalizacaoParticipante
+import br.edu.eep.cademeusparca.model.MarcadorEvento
+import br.edu.eep.cademeusparca.model.marcadorEvento
 import br.edu.eep.cademeusparca.repository.CompartilhamentoLocalizacaoRepository
 import br.edu.eep.cademeusparca.repository.LocalizacaoRepository
 import br.edu.eep.cademeusparca.repository.StatusCompartilhamento
@@ -34,10 +36,14 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private val usuarioRepository = UsuarioRepository()
     private var listenerLocalizacoes: ListenerRegistration? = null
     private var listenerPerfisPublicos: ListenerRegistration? = null
+    private var listenerAutenticacao: ListenerRegistration? = null
+    var acessoNegado by mutableStateOf(false)
+        private set
     private val rolesComPerfilPublicado = mutableSetOf<String>()
     private val rolesPublicandoPerfil = mutableSetOf<String>()
     private var roleObservado: String? = null
     private var geracaoObservacao = 0
+    private var buscaRoleAtual = 0
     private var cancellationSource: CancellationTokenSource? = null
     private var tentativaLocalizacaoFeita = false
     private var mapaResumido = false
@@ -52,10 +58,14 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         private set
 
     fun iniciarCompartilhamento(activity: ComponentActivity, roleId: String) {
-        LocationServiceController.iniciar(activity, roleId)
+        if (!acessoNegado) LocationServiceController.iniciar(activity, roleId)
     }
 
     private fun atualizarEstadoCompartilhamento() {
+        if (acessoNegado) {
+            mensagemCompartilhamento = "Compartilhamento indisponível neste rolê."
+            return
+        }
         val estado = compartilhamento.estado.value
         mensagemCompartilhamento = if (estado.roleId != null && estado.roleId != roleObservado &&
             estado.status in setOf(StatusCompartilhamento.INICIANDO, StatusCompartilhamento.COMPARTILHANDO)
@@ -76,6 +86,8 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     }
 
     var nomeRole by mutableStateOf("")
+        private set
+    var marcadorEvento by mutableStateOf<MarcadorEvento?>(null)
         private set
     var mensagemRole by mutableStateOf("")
         private set
@@ -178,10 +190,16 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
 
     fun iniciarObservacao(roleId: String) {
         if (roleId.isBlank() || roleId.contains('/')) return
-        if (roleObservado != roleId) {
+        val uid = usuarioRepository.userIdAtual
+        if (uid.isNullOrBlank()) {
+            perderAcesso()
+            return
+        }
+        if (roleObservado != roleId || userIdAtual != uid) {
             pararObservacao()
+            acessoNegado = false
             roleObservado = roleId
-            userIdAtual = usuarioRepository.userIdAtual.orEmpty()
+            userIdAtual = uid
         }
         mapaResumido = true
         iniciarTickerTempo()
@@ -189,9 +207,19 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         recuperacao = null
         atualizarEstadoCompartilhamento()
         val geracao = geracaoObservacao
+        if (listenerAutenticacao == null) {
+            val novoListener = usuarioRepository.observarAutenticacao {
+                if (geracao == geracaoObservacao && it != uid) perderAcesso()
+            }
+            if (geracao == geracaoObservacao) listenerAutenticacao = novoListener else novoListener.remove()
+        }
+        if (geracao != geracaoObservacao) return
 
         if (listenerPerfisPublicos == null) {
-            listenerPerfisPublicos = usuarioRepository.observarPerfisPublicosDoRole(roleId) { perfis, erro ->
+            val novoListener = usuarioRepository.observarPerfisPublicosDoRole(
+                roleId,
+                aoPerderAcesso = { if (geracao == geracaoObservacao) perderAcesso() }
+            ) { perfis, erro ->
                 if (geracao != geracaoObservacao) return@observarPerfisPublicosDoRole
                 mensagemPerfis = erro.orEmpty()
                 if (erro == null) {
@@ -202,11 +230,15 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
                     agendarRecuperacao()
                 }
             }
+            if (geracao == geracaoObservacao) listenerPerfisPublicos = novoListener else novoListener?.remove()
         }
+        if (geracao != geracaoObservacao) return
         if (roleId !in rolesComPerfilPublicado && rolesPublicandoPerfil.add(roleId)) {
             usuarioRepository.publicarMeuPerfilPublicoNoRole(roleId) { perfil, erro ->
                 rolesPublicandoPerfil.remove(roleId)
-                if (erro == null) rolesComPerfilPublicado.add(roleId)
+                if (erro == null && !acessoNegado && uid == usuarioRepository.userIdAtual) {
+                    rolesComPerfilPublicado.add(roleId)
+                }
                 if (geracao != geracaoObservacao) return@publicarMeuPerfilPublicoNoRole
                 meuParcaname = perfil?.parcaname.orEmpty()
                 if (erro != null) mensagemPerfis = erro
@@ -214,7 +246,10 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         }
         if (listenerLocalizacoes == null) {
             carregandoParticipantes = true
-            listenerLocalizacoes = localizacaoRepository.observarLocalizacoesDoRole(roleId) { lista, erro ->
+            val novoListener = localizacaoRepository.observarLocalizacoesDoRole(
+                roleId,
+                aoPerderAcesso = { if (geracao == geracaoObservacao) perderAcesso() }
+            ) { lista, erro ->
                 if (geracao != geracaoObservacao) return@observarLocalizacoesDoRole
                 mensagemLeitura = erro.orEmpty()
                 carregandoParticipantes = false
@@ -228,7 +263,30 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
                     agendarRecuperacao()
                 }
             }
+            if (geracao == geracaoObservacao) listenerLocalizacoes = novoListener else novoListener?.remove()
         }
+    }
+
+    private fun perderAcesso() {
+        acessoNegado = true
+        if (roleObservado != null && compartilhamento.estado.value.roleId == roleObservado) {
+            LocationServiceController.parar(getApplication())
+        }
+        pararObservacao()
+        localizacao = null
+        tentativaLocalizacaoFeita = false
+        userIdAtual = ""
+        meuParcaname = ""
+        nomeRole = ""
+        marcadorEvento = null
+        mensagemRole = ""
+        mensagemPerfis = ""
+        mensagemLocalizacao = ""
+        posicaoAtualizada = false
+        rolesComPerfilPublicado.clear()
+        rolesPublicandoPerfil.clear()
+        mensagemLeitura = "Você não tem mais acesso a este rolê. Volte para Meus rolês."
+        atualizarEstadoCompartilhamento()
     }
 
     private fun iniciarTickerTempo() {
@@ -256,6 +314,8 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         listenerLocalizacoes = null
         listenerPerfisPublicos?.remove()
         listenerPerfisPublicos = null
+        listenerAutenticacao?.remove()
+        listenerAutenticacao = null
         parcanames = emptyMap()
         roleObservado = null
         localizacoesParticipantes = emptyList()
@@ -297,7 +357,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun atualizarMinhaPosicao(roleId: String) {
-        if (carregandoLocalizacao || salvandoLocalizacao) return
+        if (acessoNegado || carregandoLocalizacao || salvandoLocalizacao) return
         posicaoAtualizada = false
         if (!locationRepository.temLocalizacaoPrecisa()) {
             mensagemLocalizacao = "Habilite a localização precisa nas configurações para compartilhar sua posição."
@@ -307,8 +367,20 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun carregarRole(roleId: String) {
+        val busca = ++buscaRoleAtual
+        val uid = usuarioRepository.userIdAtual
         roleRepository.buscarRolePorId(roleId) { role, erro ->
+            // Uma leitura anterior à edição não pode restaurar o nome ou ponto antigos.
+            if (busca != buscaRoleAtual || acessoNegado ||
+                uid != usuarioRepository.userIdAtual
+            ) return@buscarRolePorId
+            if (role != null && role.status != "ativo") {
+                mensagemLeitura = "Este rolê foi encerrado."
+                perderAcesso()
+                return@buscarRolePorId
+            }
             nomeRole = role?.nome.orEmpty()
+            marcadorEvento = role?.marcadorEvento()
             mensagemRole = erro ?: ""
         }
     }
@@ -326,7 +398,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun buscarLocalizacao(roleIdParaSalvar: String? = null) {
-        if (carregandoLocalizacao || salvandoLocalizacao) return
+        if (acessoNegado || carregandoLocalizacao || salvandoLocalizacao) return
         if (!locationRepository.temPermissao()) {
             semPermissao()
             return

@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
@@ -23,12 +25,16 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +63,7 @@ fun DetalhesParcaScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val posicaoInicial = rememberUpdatedState(posicaoAndroidInicial)
     val snackbar = remember { SnackbarHostState() }
+    var exibirDialogoRemover by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner, viewModel, roleId, userId) {
         fun iniciar() = viewModel.iniciarObservacao(roleId, userId, posicaoInicial.value)
@@ -83,20 +90,41 @@ fun DetalhesParcaScreen(
         }
     }
 
+    if (exibirDialogoRemover) {
+        AlertDialog(
+            onDismissRequest = { exibirDialogoRemover = false },
+            title = { Text("Remover participante") },
+            text = { Text("Deseja realmente remover este participante do rolê?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        exibirDialogoRemover = false
+                        viewModel.removerDoRole(onVoltar)
+                    }
+                ) { Text("Remover", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { exibirDialogoRemover = false }) { Text("Cancelar") }
+            }
+        )
+    }
+
     DetalhesParcaLayout(
         perfil = viewModel.perfil,
         localizacao = viewModel.localizacao,
-        carregando = viewModel.carregando,
+        carregando = viewModel.carregando || viewModel.removendoParca,
         mensagem = viewModel.mensagem,
         podeLigar = viewModel.podeLigar,
         podeWhatsApp = viewModel.podeWhatsApp,
         podeTracarRota = viewModel.podeTracarRota,
+        podeRemover = viewModel.podeRemover,
         snackbar = snackbar,
         onVoltar = onVoltar,
         onTentarNovamente = { viewModel.iniciarObservacao(roleId, userId, posicaoInicial.value) },
         onLigar = { viewModel.ligar(context) },
         onWhatsApp = { viewModel.whatsapp(context) },
-        onTracarRota = { viewModel.tracarRota(context) }
+        onTracarRota = { viewModel.tracarRota(context) },
+        onRemoverParca = { exibirDialogoRemover = true }
     )
 }
 
@@ -110,12 +138,14 @@ private fun DetalhesParcaLayout(
     podeLigar: Boolean = false,
     podeWhatsApp: Boolean = false,
     podeTracarRota: Boolean = false,
+    podeRemover: Boolean = false,
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     onVoltar: () -> Unit = {},
     onTentarNovamente: () -> Unit = {},
     onLigar: () -> Unit = {},
     onWhatsApp: () -> Unit = {},
-    onTracarRota: () -> Unit = {}
+    onTracarRota: () -> Unit = {},
+    onRemoverParca: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -137,7 +167,7 @@ private fun DetalhesParcaLayout(
                 verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically)
             ) {
                 CircularProgressIndicator()
-                Text("Verificando participação e carregando o parça...")
+                Text("Processando...")
             }
         } else if (mensagem.isNotBlank() || perfil == null) {
             Column(
@@ -220,6 +250,16 @@ private fun DetalhesParcaLayout(
                     enabled = podeTracarRota,
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Traçar rota") }
+
+                if (podeRemover) {
+                    OutlinedButton(
+                        onClick = onRemoverParca,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Remover do rolê")
+                    }
+                }
             }
         }
     }

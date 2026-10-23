@@ -1,5 +1,6 @@
 package br.edu.eep.cademeusparca.service
 
+import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -44,5 +45,14 @@ object LocationServiceController {
             CompartilhamentoLocalizacaoRepository.informarErro("O Android bloqueou o início. Abra o mapa com o app visível.")
             Log.w("LocationForegroundService", "SERVICE_START_REJECTED timestamp=${System.currentTimeMillis()} type=IllegalStateException")
         }
+    }
+
+    fun parar(context: Context) {
+        try {
+            context.stopService(Intent(context, LocationForegroundService::class.java))
+        } catch (_: Exception) {
+            // Ignora se o serviço não estiver em execução
+        }
+        CompartilhamentoLocalizacaoRepository.parar()
     }
 }

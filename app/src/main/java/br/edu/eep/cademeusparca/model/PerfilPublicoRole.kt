@@ -5,6 +5,12 @@ data class PerfilPublicoRole(
     val parcaname: String = "",
     val telefone: String = ""
 ) {
+    fun paraMapaDocumento(): Map<String, String> = mapOf(
+        "userId" to userId,
+        "parcaname" to parcaname,
+        "telefone" to telefone
+    )
+
     companion object {
         fun deDocumento(documentoId: String, dados: Map<String, Any?>): PerfilPublicoRole? {
             val uid = dados["userId"] as? String ?: return null

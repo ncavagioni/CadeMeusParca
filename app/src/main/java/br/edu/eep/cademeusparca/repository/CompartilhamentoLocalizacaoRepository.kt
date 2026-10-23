@@ -7,6 +7,7 @@ import android.location.Location
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import br.edu.eep.cademeusparca.service.LocationServiceController
 import br.edu.eep.cademeusparca.viewmodel.FilaUltimaPosicao
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -170,6 +171,13 @@ object CompartilhamentoLocalizacaoRepository {
                 pedidosManuais.removeAll(concluidos.toSet())
                 concluidos.forEach { it.resultado(sucesso, erro) }
                 if (!sucesso) {
+                    val ehErroPermissao = erro?.contains("PERMISSION_DENIED", ignoreCase = true) == true ||
+                        erro?.contains("permissão", ignoreCase = true) == true
+                    if (ehErroPermissao) {
+                        parar("Você não tem mais acesso a este rolê.")
+                        context?.let { LocationServiceController.parar(it) }
+                        return@salvarMinhaLocalizacao
+                    }
                     informarErro(erro ?: "Não foi possível enviar sua posição.", falhaEnvio = true)
                     if (ativo) {
                         fila.reporSeVazia(pedido) // Uma posição mais nova sempre tem prioridade.

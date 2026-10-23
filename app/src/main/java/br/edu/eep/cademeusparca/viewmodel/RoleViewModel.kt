@@ -12,12 +12,11 @@ class RoleViewModel : ViewModel() {
 
     private val repository = RoleRepository()
 
-    var nome by mutableStateOf("")
+    var formulario by mutableStateOf(CriacaoRoleFormulario())
         private set
-    var nomeLocal by mutableStateOf("")
-        private set
-    var endereco by mutableStateOf("")
-        private set
+    val nome get() = formulario.nome
+    val nomeLocal get() = formulario.nomeLocal
+    val endereco get() = formulario.endereco
     var mensagem by mutableStateOf("")
         private set
     var nomeInvalido by mutableStateOf(false)
@@ -123,17 +122,37 @@ class RoleViewModel : ViewModel() {
 
     fun atualizarNome(valor: String) {
         if (carregando) return
-        nome = valor
+        formulario = formulario.copy(nome = valor)
         nomeInvalido = false
         mensagem = ""
     }
 
     fun atualizarNomeLocal(valor: String) {
-        if (!carregando) nomeLocal = valor
+        if (!carregando) formulario = formulario.copy(nomeLocal = valor)
     }
 
     fun atualizarEndereco(valor: String) {
-        if (!carregando) endereco = valor
+        if (!carregando) formulario = formulario.copy(endereco = valor)
+    }
+
+    fun abrirSeletorLocal() {
+        if (!carregando) formulario = formulario.abrirSeletor()
+    }
+
+    fun selecionarPonto(latitude: Double, longitude: Double) {
+        if (!carregando) formulario = formulario.selecionarPonto(latitude, longitude)
+    }
+
+    fun confirmarLocal() {
+        if (!carregando) formulario = formulario.confirmarLocal()
+    }
+
+    fun cancelarSelecaoLocal() {
+        formulario = formulario.cancelarSelecao()
+    }
+
+    fun limparLocal() {
+        if (!carregando) formulario = formulario.limparLocal()
     }
 
     fun criarRole() {
@@ -149,7 +168,12 @@ class RoleViewModel : ViewModel() {
         nomeInvalido = false
         mensagem = ""
 
-        repository.criarRole(nome, nomeLocal, endereco) { role, erro ->
+        val ponto = formulario.pontoSelecionado
+        repository.criarRole(
+            nome, nomeLocal, endereco,
+            latitudeLocal = ponto?.latitude,
+            longitudeLocal = ponto?.longitude
+        ) { role, erro ->
             roleCriado = role
             mensagem = erro ?: ""
             carregando = false
