@@ -49,7 +49,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     private var mapaResumido = false
     private val handler = Handler(Looper.getMainLooper())
     private var recuperacao: Runnable? = null
-    private var versaoManual = 0
     private var tickerTempo: Job? = null
     private var agoraMs by mutableStateOf(System.currentTimeMillis())
     private val compartilhamento = CompartilhamentoLocalizacaoRepository
@@ -96,11 +95,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
     var carregandoLocalizacao by mutableStateOf(false)
         private set
     var mensagemLocalizacao by mutableStateOf("")
-        private set
-
-    var salvandoLocalizacao by mutableStateOf(false)
-        private set
-    var posicaoAtualizada by mutableStateOf(false)
         private set
 
     var localizacoesParticipantes by mutableStateOf<List<LocalizacaoParticipante>>(emptyList())
@@ -282,7 +276,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         mensagemRole = ""
         mensagemPerfis = ""
         mensagemLocalizacao = ""
-        posicaoAtualizada = false
         rolesComPerfilPublicado.clear()
         rolesPublicandoPerfil.clear()
         mensagemLeitura = "Você não tem mais acesso a este rolê. Volte para Meus rolês."
@@ -301,9 +294,7 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         tickerTempo = null
         recuperacao?.let(handler::removeCallbacks)
         recuperacao = null
-        // Só cancela a busca pontual/feedback da tela. O serviço continua compartilhando.
-        versaoManual++
-        salvandoLocalizacao = false
+        // Só cancela a busca pontual da tela. O serviço continua compartilhando.
         cancelarBuscaLocalizacao()
     }
 
@@ -356,16 +347,6 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         )
     }
 
-    fun atualizarMinhaPosicao(roleId: String) {
-        if (acessoNegado || carregandoLocalizacao || salvandoLocalizacao) return
-        posicaoAtualizada = false
-        if (!locationRepository.temLocalizacaoPrecisa()) {
-            mensagemLocalizacao = "Habilite a localização precisa nas configurações para compartilhar sua posição."
-            return
-        }
-        buscarLocalizacao(roleId)
-    }
-
     fun carregarRole(roleId: String) {
         val busca = ++buscaRoleAtual
         val uid = usuarioRepository.userIdAtual
@@ -397,8 +378,8 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         buscarLocalizacao()
     }
 
-    private fun buscarLocalizacao(roleIdParaSalvar: String? = null) {
-        if (acessoNegado || carregandoLocalizacao || salvandoLocalizacao) return
+    private fun buscarLocalizacao() {
+        if (acessoNegado || carregandoLocalizacao) return
         if (!locationRepository.temPermissao()) {
             semPermissao()
             return
@@ -407,42 +388,21 @@ class MapaRoleViewModel(application: Application) : AndroidViewModel(application
         tentativaLocalizacaoFeita = true
         carregandoLocalizacao = true
         mensagemLocalizacao = ""
-        posicaoAtualizada = false
         val source = CancellationTokenSource()
         cancellationSource = source
 
         locationRepository.obterLocalizacaoAtual(source.token) { location, erro ->
             if (cancellationSource !== source) return@obterLocalizacaoAtual
             // getCurrentLocation pode terminar depois de um callback automático mais recente.
-            val aceita = location?.let(::atualizarPosicaoLocal) ?: false
+            location?.let(::atualizarPosicaoLocal)
             mensagemLocalizacao = erro ?: ""
             carregandoLocalizacao = false
             cancellationSource = null
-            if (roleIdParaSalvar != null && location != null) {
-                // Reavaliar após a busca: a permissão pode ter mudado enquanto aguardávamos.
-                if (!locationRepository.temLocalizacaoPrecisa()) {
-                    mensagemLocalizacao = "Habilite a localização precisa nas configurações para compartilhar sua posição."
-                    return@obterLocalizacaoAtual
-                }
-                val maisRecente = if (aceita) location else localizacao ?: return@obterLocalizacaoAtual
-                if (!mapaResumido || roleObservado != roleIdParaSalvar) return@obterLocalizacaoAtual
-                val versao = ++versaoManual
-                salvandoLocalizacao = true
-                compartilhamento.salvarManual(roleIdParaSalvar, maisRecente) { sucesso, mensagem ->
-                    if (versao == versaoManual && mapaResumido && roleObservado == roleIdParaSalvar) {
-                        salvandoLocalizacao = false
-                        posicaoAtualizada = sucesso
-                        mensagemLocalizacao = if (sucesso) "Posição atualizada."
-                        else mensagem ?: "Não foi possível atualizar sua posição."
-                    }
-                }
-            }
         }
     }
 
     fun semPermissao() {
         cancelarBuscaLocalizacao()
-        posicaoAtualizada = false
         localizacao = null
         tentativaLocalizacaoFeita = false
         mensagemLocalizacao = "A localização é necessária para mostrar sua posição no mapa."

@@ -31,7 +31,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -361,9 +360,7 @@ fun MapaRoleScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (posicaoInicialCamera != null &&
-                    (viewModel.carregandoLocalizacao || viewModel.salvandoLocalizacao)
-                ) {
+                if (posicaoInicialCamera != null && viewModel.carregandoLocalizacao) {
                     CircularProgressIndicator()
                 }
             }
@@ -454,12 +451,6 @@ fun MapaRoleScreen(
                     if (viewModel.carregandoLocalizacao) {
                         Text("Obtendo sua localização...", style = MaterialTheme.typography.bodyMedium)
                     }
-                    if (viewModel.salvandoLocalizacao) {
-                        Text(
-                            "Salvando sua posição... Aguardando confirmação do servidor.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
                     if (!localizacaoPrecisa) {
                         Text(
                             "Habilite a localização precisa para compartilhar sua posição.",
@@ -474,7 +465,7 @@ fun MapaRoleScreen(
                                     )
                                 )
                             },
-                            enabled = !viewModel.acessoNegado && !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
+                            enabled = !viewModel.acessoNegado && !viewModel.carregandoLocalizacao,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Habilitar localização precisa")
@@ -483,21 +474,9 @@ fun MapaRoleScreen(
                     if (viewModel.mensagemLocalizacao.isNotBlank()) {
                         Text(
                             viewModel.mensagemLocalizacao,
-                            color = if (viewModel.posicaoAtualizada) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.error,
+                            color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodyMedium
                         )
-                    }
-                    // Ação manual temporária de apoio aos testes.
-                    TextButton(
-                        onClick = {
-                            atualizarPermissao()
-                            viewModel.atualizarMinhaPosicao(roleId)
-                        },
-                        enabled = !viewModel.acessoNegado && !viewModel.carregandoLocalizacao && !viewModel.salvandoLocalizacao,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    ) {
-                        Text("Atualizar posição")
                     }
                 }
             }

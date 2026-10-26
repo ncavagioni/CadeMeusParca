@@ -23,7 +23,7 @@ data class EstadoCompartilhamento(
     val erro: String? = null
 )
 
-// Estado e uma única fila para serviço e atualização manual. Todos os acessos são na main thread.
+// Estado e uma única fila para o serviço. Todos os acessos são na main thread.
 // Uma Task em andamento continua mantendo a trava mesmo após stop/troca de rolê.
 object CompartilhamentoLocalizacaoRepository {
     private val estadoMutavel = MutableStateFlow(EstadoCompartilhamento())
@@ -37,18 +37,10 @@ object CompartilhamentoLocalizacaoRepository {
     private var ativo = false
     private var erroColeta: String? = null
     private var erroEnvio: String? = null
-    private var versaoManual = 0L
-    private val pedidosManuais = mutableListOf<PedidoManual>()
 
     private data class Gravacao(
         val destino: SessaoCompartilhamento.Destino,
-        val location: Location,
-        val versaoManual: Long
-    )
-    private data class PedidoManual(
-        val destino: SessaoCompartilhamento.Destino,
-        val versao: Long,
-        val resultado: (Boolean, String?) -> Unit
+        val location: Location
     )
 
     fun configurar(context: Context) {
@@ -92,7 +84,6 @@ object CompartilhamentoLocalizacaoRepository {
         cancelarRecuperacao()
         sessao.encerrar()
         fila.descartarPendente()
-        finalizarManuais("Compartilhamento interrompido.")
         estadoMutavel.value = estado.value.copy(
             status = if (erro == null) StatusCompartilhamento.PARADO else StatusCompartilhamento.ERRO,
             erro = erro
@@ -103,24 +94,7 @@ object CompartilhamentoLocalizacaoRepository {
         if (!ativo) return
         val destino = sessao.destino ?: return
         val maisRecente = atualizarLocal(location)
-        fila.oferecer(Gravacao(destino, maisRecente, versaoManual))
-        processarFila()
-    }
-
-    fun salvarManual(roleId: String, location: Location, resultado: (Boolean, String?) -> Unit) {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid
-        if (uid == null || !permissaoPrecisa()) {
-            resultado(false, "É necessário estar autenticado e permitir localização precisa.")
-            return
-        }
-        if (ativo && sessao.destino?.roleId != roleId) {
-            resultado(false, "Outro rolê está ativo. Reabra este mapa antes de atualizar.")
-            return
-        }
-        val destino = selecionarDestino(roleId, uid)
-        val maisRecente = atualizarLocal(location)
-        pedidosManuais.add(PedidoManual(destino, ++versaoManual, resultado))
-        fila.oferecer(Gravacao(destino, maisRecente, versaoManual))
+        fila.oferecer(Gravacao(destino, maisRecente))
         processarFila()
     }
 
@@ -130,7 +104,6 @@ object CompartilhamentoLocalizacaoRepository {
         if (destino != anterior) {
             cancelarRecuperacao()
             fila.descartarPendente()
-            finalizarManuais("O rolê ativo foi alterado.")
             estadoMutavel.value = estado.value.copy(
                 roleId = roleId,
                 userId = uid,
@@ -155,7 +128,6 @@ object CompartilhamentoLocalizacaoRepository {
             FirebaseAuth.getInstance().currentUser?.uid != pedido.destino.userId
         ) {
             fila.concluir()
-            finalizarManuais("A sessão ou a permissão de localização mudou.")
             return
         }
         val location = pedido.location
@@ -165,11 +137,6 @@ object CompartilhamentoLocalizacaoRepository {
         ) { sucesso, erro ->
             fila.concluir() // Inclusive se o serviço parou ou o destino mudou durante a Task.
             if (sessao.aceita(pedido.destino)) {
-                val concluidos = pedidosManuais.filter {
-                    it.destino == pedido.destino && it.versao <= pedido.versaoManual
-                }
-                pedidosManuais.removeAll(concluidos.toSet())
-                concluidos.forEach { it.resultado(sucesso, erro) }
                 if (!sucesso) {
                     val ehErroPermissao = erro?.contains("PERMISSION_DENIED", ignoreCase = true) == true ||
                         erro?.contains("permissão", ignoreCase = true) == true
@@ -207,12 +174,6 @@ object CompartilhamentoLocalizacaoRepository {
     private fun cancelarRecuperacao() {
         recuperacao?.let(handler::removeCallbacks)
         recuperacao = null
-    }
-
-    private fun finalizarManuais(mensagem: String) {
-        val anteriores = pedidosManuais.toList()
-        pedidosManuais.clear()
-        anteriores.forEach { it.resultado(false, mensagem) }
     }
 
     private fun permissaoPrecisa(): Boolean = context?.let {

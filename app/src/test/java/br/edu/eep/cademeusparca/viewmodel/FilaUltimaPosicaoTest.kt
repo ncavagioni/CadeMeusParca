@@ -77,11 +77,11 @@ class FilaUltimaPosicaoTest {
     }
 
     @Test
-    fun manualEAutomaticoCompartilhamAMesmaProtecao() {
+    fun atualizacoesAutomaticasCompartilhamAMesmaProtecao() {
         val fila = FilaUltimaPosicao<String>()
         fila.oferecer("automatico anterior")
         fila.retirarParaGravar()
-        fila.oferecer("manual")
+        fila.oferecer("automatico intermediario")
         assertNull(fila.retirarParaGravar())
         fila.oferecer("automatico mais recente")
         fila.concluir()
